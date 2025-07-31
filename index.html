@@ -277,93 +277,99 @@ function salvaGara(index) {
 
 function analisiAIAvanzata(nomi, quote, gare) {
   const cavalli = nomi.map((nome, i) => ({ nome, quota: parseFloat(quote[i]), corsia: i + 1 }));
+
   const patternQuote = cavalli.map(c => quotaPattern(c.quota));
   const sommaQuote = cavalli.reduce((a, c) => a + c.quota, 0).toFixed(2);
   const favorito = cavalli.reduce((a, b) => a.quota < b.quota ? a : b);
   const sfavorito = cavalli.reduce((a, b) => a.quota > b.quota ? a : b);
 
-  let report = `📊 Pattern quote: ${patternQuote.join("-")}\n🧮 Somma quote: ${sommaQuote}`;
+  let report = `📊 Pattern quote: ${patternQuote.join("-")}`;
+  report += `\n🧮 Somma quote: ${sommaQuote}`;
 
-  // Range somma quote notevoli
-  const rangeInteressanti = [
-    { min: 5.5, max: 7.2, messaggio: "📈 Potenziale vincita da quote medio-alte (5.5–7.2)" },
-    { min: 6.8, max: 8.1, messaggio: "🔔 Possibile sorpresa in zona 6.8–8.1" }
-  ];
-  rangeInteressanti.forEach(r => {
-    if (sommaQuote >= r.min && sommaQuote <= r.max) report += `\n${r.messaggio}`;
-  });
+  // Analisi favorito
+  const storicoFavorito = analisiStoricaPerCorsia(favorito.corsia, favorito.quota, "vittorie");
+  if (storicoFavorito.includes("0 vittorie")) {
+    report += `\n⚠️ Attenzione: il cavallo favorito ${favorito.nome} (quota ${favorito.quota}) non ha mai vinto in corsia ${favorito.corsia} con quota simile`;
+  }
 
-  // Cavallo favorito/sfavorito
+  // Analisi sfavorito
+  const storicoSfavorito = analisiStoricaPerCorsia(sfavorito.corsia, sfavorito.quota, "vittorie");
+  if (!storicoSfavorito.includes("0 vittorie")) {
+    report += `\n🎯 Sorpresa: ${storicoSfavorito} del cavallo sfavorito storico!`;
+  }
+
   report += `\n\n🏇 Cavallo favorito: ${favorito.nome} (Corsia ${favorito.corsia}, Quota ${favorito.quota})`;
   report += `\n🐢 Cavallo sfavorito: ${sfavorito.nome} (Corsia ${sfavorito.corsia}, Quota ${sfavorito.quota})`;
 
-  const analisiFavorito = analisiStoricaPerCorsia(favorito.corsia, favorito.quota, "vittorie");
-  const analisiSfavorito = analisiStoricaPerCorsia(sfavorito.corsia, sfavorito.quota, "podi");
-
-  if (analisiFavorito.includes("0 vittorie")) report += `\n⚠️ Attenzione: il favorito potrebbe essere solo teorico!`;
-  if (!analisiSfavorito.includes("0 podi")) report += `\n🎉 Sorpresa possibile: lo sfavorito ha già fatto podio!`;
-
-  report += `\n🎯 Storico favorito: ${analisiFavorito}`;
-  report += `\n🤞 Storico sfavorito: ${analisiSfavorito}`;
-
   // Cavalli ricorrenti
   const cavalliStorici = caricaStoricoCavalli();
-  const ricorrenti = cavalli.map(c => {
-    const rec = cavalliStorici[c.nome.toLowerCase()];
-    if (rec) {
-      const quoteRange = rec.quotePodi ? ` | Quote podio: da ${Math.min(...rec.quotePodi)} a ${Math.max(...rec.quotePodi)}` : "";
-      return `→ ${c.nome}: ${rec.podi} podi (${rec.primi || 0}🥇, ${rec.secondi || 0}🥈, ${rec.terzi || 0}🥉) su ${rec.totali} gare | Quota media: ${rec.quotaMedia}${quoteRange}`;
+  const cavalliRicorrenti = cavalli.map(c => {
+    const record = cavalliStorici[c.nome.toLowerCase()];
+    if (record) {
+      const podi = record.podi || 0;
+      const primi = record.primi || 0;
+      const secondi = record.secondi || 0;
+      const terzi = record.terzi || 0;
+      const quotaMedia = record.quotaMedia || "-";
+      return `→ ${c.nome}: ${((podi / record.totali) * 100).toFixed(1)}% podio su ${record.totali} gare | 🥇${primi} 🥈${secondi} 🥉${terzi} | Quota media: ${quotaMedia}`;
     }
     return null;
   }).filter(Boolean);
-  if (ricorrenti.length) report += `\n\n📌 Cavalli ricorrenti:\n${ricorrenti.join("\n")}`;
+  if (cavalliRicorrenti.length) {
+    report += `\n\n📌 Cavalli ricorrenti (storico della gara attuale):\n${cavalliRicorrenti.join("\n")}`;
+  }
 
-  // Analisi quote per corsia
-  report += `\n\n📊 Quote per corsia:`;
+  // Analisi quote per corsia + podio
+  report += `\n\n📊 Quote e corsie:\n`;
   cavalli.forEach(c => {
     const info = analizzaQuotaECorsia(c.corsia, c.quota);
-    report += `\n→ Corsia ${c.corsia}, Quota ${c.quota}: ${info}`;
-    if (info.includes("⚠️")) report += ` ❗️Quota in range tossico!`;
+    const podioStat = analisiPodioPerQuotaECorsia(c.corsia, c.quota);
+    report += `→ Corsia ${c.corsia}, Quota ${c.quota}: ${info}\n   ↳ ${podioStat}\n`;
   });
 
-  // Tris AI consigliata
+  // Tris AI suggerita
   const tris = suggerisciTrisAI(cavalli);
   if (tris.length === 3) {
     const patternTris = tris.map(c => quotaPattern(c.quota));
     const sommaTris = tris.reduce((a, b) => a + b.quota, 0).toFixed(2);
     const sommaNum = parseFloat(sommaTris);
-    let classificazione = "";
 
+    let classificazione = "";
     if (sommaNum <= 8) classificazione = "💎 favorita";
     else if (sommaNum <= 13) classificazione = "✅ bilanciata";
     else if (sommaNum <= 18) classificazione = "⚠️ rischiosa";
     else classificazione = "☠️ tossica";
 
-    // Analisi pattern storico (simulato)
-    const patternFrequente = ["B-M-A", "M-M-M", "B-B-M"]; // Esempi
-    const patternAttuale = patternTris.join("-");
-    const èComune = patternFrequente.includes(patternAttuale);
+    report += `\n🤖 Predizione Tris AI: ${tris.map(c => c.corsia).join("-")} (${patternTris.join("-"), somma quote: ${sommaTris}) → ${classificazione}`;
 
-    report += `\n\n🤖 Tris AI consigliata: ${tris.map(c => c.corsia).join("-")} (${patternTris.join("-")}, somma: ${sommaTris}) → ${classificazione}`;
-    report += èComune
-      ? `\n📌 Pattern tris comune e storicamente vincente (${patternAttuale})`
-      : `\n⚠️ Pattern tris raro o mai vincente (${patternAttuale})`;
+    const trisString = tris.map(c => c.corsia).sort().join(",");
+    const clusterFrequenti = [
+      "1,2,3","1,3,5","2,3,4","3,4,6","2,4,5","1,4,6","1,5,6"
+    ];
+    if (clusterFrequenti.includes(trisString)) {
+      report += `\n🔁 Tris AI compatibile con cluster vincente frequente (${trisString})`;
+    }
   } else {
-    report += `\n\n🤖 Tris AI: Non abbastanza dati per una predizione affidabile.`;
+    report += `\n🤖 Predizione Tris AI: Non abbastanza dati per una predizione affidabile.`;
   }
 
-  // Sintesi finale
-  report += `\n\n✅ Analisi completata.`;
-  if (report.includes("⚠️")) report += `\n🔍 Alcuni alert sono stati rilevati: valuta attentamente la tua puntata.`;
-  if (report.includes("💎")) report += `\n🌟 Tris con alta probabilità secondo lo storico.`;
-  if (report.includes("☠️")) report += `\n❌ Tris considerata tossica: evita se possibile.`;
+  // Frase finale
+  report += `\n\n✨ Sintesi:`;
+  if (storicoFavorito.includes("0 vittorie")) report += ` ⚠️ Attenzione: favorito solo teorico.`;
+  if (!storicoSfavorito.includes("0 vittorie")) report += ` 🎯 Possibile sorpresa dello sfavorito.`;
+  if (tris.length === 3) {
+    if (classificazione.includes("tossica") || classificazione.includes("rischiosa")) {
+      report += ` 🚨 Tris AI a rischio: ${classificazione}`;
+    } else {
+      report += ` ✅ Tris AI considerata: ${classificazione}`;
+    }
+  }
 
   return {
     trisAI: tris,
     reportTesto: report
   };
 }
-
 function quotaPattern(quota) {
   if (quota <= 2.5) return "B";
   if (quota <= 6.5) return "M";
