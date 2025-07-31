@@ -99,15 +99,38 @@ const NUM_CORSIE = 6;
 
 function inizializzaTabella() {
   const tbody = document.getElementById("body1");
-  tbody.innerHTML = ""; // Pulisce eventuali righe precedenti
+  tbody.innerHTML = ""; // pulizia per evitare duplicati
   for (let i = 1; i <= NUM_CORSIE; i++) {
-    tbody.innerHTML += `
-      <tr>
-        <td>${i}</td>
-        <td><input type="text" id="nome1_${i}" class="nome" name="cavallo${i}" autocomplete="off" /></td>
-        <td><input type="number" step="0.01" id="quota1_${i}" class="quota" name="quota${i}" inputmode="decimal" /></td>
-      </tr>
-    `;
+    const row = document.createElement("tr");
+
+    const cellCorsia = document.createElement("td");
+    cellCorsia.textContent = i;
+
+    const cellNome = document.createElement("td");
+    const inputNome = document.createElement("input");
+    inputNome.type = "text";
+    inputNome.id = `nome1_${i}`;
+    inputNome.name = `cavallo${i}`;
+    inputNome.className = "nome";
+    inputNome.autocomplete = "off";
+    cellNome.appendChild(inputNome);
+
+    const cellQuota = document.createElement("td");
+    const inputQuota = document.createElement("input");
+    inputQuota.type = "number";
+    inputQuota.step = "0.01";
+    inputQuota.inputMode = "decimal";
+    inputQuota.pattern = "[0-9]*";
+    inputQuota.id = `quota1_${i}`;
+    inputQuota.name = `quota${i}`;
+    inputQuota.className = "quota";
+    cellQuota.appendChild(inputQuota);
+
+    row.appendChild(cellCorsia);
+    row.appendChild(cellNome);
+    row.appendChild(cellQuota);
+
+    tbody.appendChild(row);
   }
 }
 
@@ -155,11 +178,11 @@ function getGaraData(numeroGara) {
   const nomi = [];
   const quote = [];
 
-  document.querySelectorAll(#gara${numeroGara} input[name^="cavallo"]).forEach(input => {
+  document.querySelectorAll(`#gara${numeroGara} input[name^="cavallo"]`).forEach(input => {
     nomi.push(capitalize(input.value.trim()));
   });
 
-  document.querySelectorAll(#gara${numeroGara} input[name^="quota"]).forEach(input => {
+  document.querySelectorAll(`#gara${numeroGara} input[name^="quota"]`).forEach(input => {
     quote.push(input.value.trim());
   });
 
@@ -182,43 +205,12 @@ function salvaGara(index) {
   const quoteStr = JSON.stringify(quote.map(q => parseFloat(q).toFixed(2)));
   const nomiStr = JSON.stringify(nomi);
 
-  // Quote uguali, cavalli diversi
-  const gareStessaQuota = gare.filter(g => JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr && JSON.stringify(g.nomi) !== nomiStr);
-  if (gareStessaQuota.length > 0) {
-    let msg = ⚠️ Questa combinazione di quote è già presente in ${gareStessaQuota.length} gara/e con cavalli diversi.\n;
-    gareStessaQuota.forEach((g, i) => {
-      msg += \nGara ${i + 1} → Tris vincenti:\n${g.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("\n")};
-    });
-    alert(msg);
-  }
-
-  // Nomi uguali, quote diverse
-  const gareStessiNomi = gare.filter(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) !== quoteStr);
-  if (gareStessiNomi.length > 0) {
-    let msg = ⚠️ Esiste già una gara con gli stessi cavalli ma quote differenti:\n;
-    gareStessiNomi.forEach((g, i) => {
-      msg += \nGara ${i + 1} → Quote: ${g.quote.join(", ")}\nTris:\n${g.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("\n")};
-    });
-    if (!confirm(msg + \n\nVuoi salvare comunque?)) return;
-  }
-
-  // Esegui analisi AI
-  const reportAI = analisiAIAvanzata(nomi, quote, gare);
-
-  // Chiedi conferma
-  if (!confirm("Vuoi procedere con il salvataggio della gara dopo l’analisi AI?")) {
-    mostraReport(reportAI.reportTesto); // mostra il riquadro AI se clicchi Annulla
-    return;
-  }
-
-  mostraReport(reportAI.reportTesto); // opzionale anche qui
-
   // Gara identica già salvata
   const garaEsatta = gare.find(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr);
   if (garaEsatta) {
-    let msg = ⚠️ Questa gara esiste già.\nTris salvate:\n;
-    msg += garaEsatta.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("\n");
-    if (confirm(msg + \n\nVuoi salvare comunque un'altra tris?)) {
+    let msg = "Questa gara esiste già.\nTris salvate:\n";
+    msg += garaEsatta.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n");
+    if (confirm(msg + "\n\nVuoi salvare comunque un'altra tris?")) {
       let tris = prompt("Inserisci nuova tris vincente (es. 1,4,5):");
       if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
       let quotaTris = prompt("Quota tris (es. 18.5):");
@@ -227,64 +219,90 @@ function salvaGara(index) {
         alert("✅ Abbiamo vinto allora!");
         return;
       }
-      garaEsatta.tris.push({ combinazione: tris, quota: quotaTris });
+      garaEsatta.tris.push({ combinazione: tris, quota: parseFloat(quotaTris) });
       localStorage.setItem("gare", JSON.stringify(gare));
-      alert("Nuova tris aggiunta.");
+      alert("Tris aggiunta con successo.");
+      return;
+    } else {
+      return;
     }
+  }
+
+  // Quote uguali, cavalli diversi
+  const gareStessaQuota = gare.filter(g => JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr && JSON.stringify(g.nomi) !== nomiStr);
+  if (gareStessaQuota.length > 0) {
+    let msg = `⚠️ Questa combinazione di quote è già presente in ${gareStessaQuota.length} gara/e con cavalli diversi.\n`;
+    gareStessaQuota.forEach((g, i) => {
+      msg += `\nGara ${i + 1} → Tris vincenti:\n${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`;
+    });
+    alert(msg);
+  }
+
+  // Nomi uguali, quote diverse
+  const gareStessiNomi = gare.filter(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) !== quoteStr);
+  if (gareStessiNomi.length > 0) {
+    let msg = "⚠️ Esiste già una gara con gli stessi cavalli ma quote differenti:\n";
+    gareStessiNomi.forEach((g, i) => {
+      msg += `\nGara ${i + 1} → Quote: ${g.quote.join(", ")}\nTris:\n${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`;
+    });
+    if (!confirm(msg + "\n\nVuoi salvare comunque?")) return;
+  }
+
+  // Analisi AI prima del salvataggio
+  const reportAI = analisiAIAvanzata(nomi, quote, gare);
+  if (!confirm("Vuoi procedere con il salvataggio della gara dopo l’analisi AI?")) {
+    mostraReport(reportAI.reportTesto);
     return;
   }
 
-  // Gara nuova → chiedi tris e quota
-  let tris = prompt("Inserisci tris vincente (es. 1,4,5):");
+  let tris = prompt("Inserisci tris vincente (es. 2,5,6):");
   if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
-  let quotaTris = prompt("Quota tris (es. 18.5):");
+
+  let quotaTris = prompt("Quota tris (es. 12.5):");
   if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
 
-  gare.push({ nomi, quote, tris: [{ combinazione: tris, quota: quotaTris }] });
+  const nuovaGara = {
+    nomi,
+    quote: quote.map(q => parseFloat(q)),
+    tris: [{ combinazione: tris, quota: parseFloat(quotaTris) }]
+  };
+
+  gare.push(nuovaGara);
   localStorage.setItem("gare", JSON.stringify(gare));
-  alert("Gara salvata.");
+
+  alert("✅ Gara salvata con successo.");
+  aggiornaAnalisiAI?.();
 }
 
-function analisiAIAvanzata() {
-  const quote = [];
-  const cavalli = [];
+function analisiAIAvanzata(nomi, quote, gare) {
+  const cavalli = nomi.map((nome, i) => ({
+    nome,
+    quota: parseFloat(quote[i]),
+    corsia: i + 1,
+  }));
 
-  for (let i = 1; i <= 6; i++) {
-    const nome = document.getElementById(`cavallo${i}`).value.trim();
-    const quota = parseFloat(document.getElementById(`quota${i}`).value.replace(",", "."));
-    if (!isNaN(quota)) {
-      quote.push(quota);
-      cavalli.push({ nome, quota, corsia: i });
-    }
-  }
-
-  if (cavalli.length !== 6) return;
-
-  const patternQuote = quote.map(q => {
-    if (q <= 2.5) return "B";
-    if (q <= 6.5) return "M";
-    if (q <= 9.9) return "A";
+  const patternQuote = cavalli.map(c => {
+    if (c.quota <= 2.5) return "B";
+    if (c.quota <= 6.5) return "M";
+    if (c.quota <= 9.9) return "A";
     return "SA";
   });
 
-  const sommaQuote = quote.reduce((a, b) => a + b, 0).toFixed(2);
-  const favorito = cavalli.reduce((prev, curr) => (prev.quota < curr.quota ? prev : curr));
-  const sfavorito = cavalli.reduce((prev, curr) => (prev.quota > curr.quota ? prev : curr));
+  const sommaQuote = cavalli.reduce((a, c) => a + c.quota, 0).toFixed(2);
+  const favorito = cavalli.reduce((a, b) => a.quota < b.quota ? a : b);
+  const sfavorito = cavalli.reduce((a, b) => a.quota > b.quota ? a : b);
 
   let report = `📊 Pattern quote: ${patternQuote.join("-")}\n`;
   report += `🧮 Somma quote: ${sommaQuote}\n\n`;
   report += `🏇 Cavallo favorito: ${favorito.nome} (Corsia ${favorito.corsia}, Quota ${favorito.quota})\n`;
   report += `🐢 Cavallo sfavorito: ${sfavorito.nome} (Corsia ${sfavorito.corsia}, Quota ${sfavorito.quota})\n`;
 
-  // Analisi storico preferito/sfavorito
   const analisiFavorito = analisiStoricaPerCorsia(favorito.corsia, favorito.quota, "vittorie");
   const analisiSfavorito = analisiStoricaPerCorsia(sfavorito.corsia, sfavorito.quota, "podi");
-
   report += `🎯 Storico favorito: ${analisiFavorito}\n`;
   report += `🤞 Storico sfavorito: ${analisiSfavorito}\n\n`;
 
-  // Cavalli ricorrenti (da database storico)
-  const cavalliStorici = caricaStoricoCavalli(); // funzione che tu già hai
+  const cavalliStorici = caricaStoricoCavalli();
   const cavalliRicorrenti = cavalli.map(c => {
     const record = cavalliStorici[c.nome.toLowerCase()];
     if (record) {
@@ -292,20 +310,17 @@ function analisiAIAvanzata() {
     }
     return null;
   }).filter(Boolean);
-
   if (cavalliRicorrenti.length) {
     report += `📌 Cavalli ricorrenti:\n${cavalliRicorrenti.join("\n")}\n\n`;
   }
 
-  // Analisi Quote + Corsia
   report += `📊 Analisi quote per corsia:\n`;
   cavalli.forEach(c => {
     const info = analizzaQuotaECorsia(c.corsia, c.quota);
     report += `→ Corsia ${c.corsia}, quota ${c.quota} ${info}\n`;
   });
 
-  // Tris AI consigliata
-  const tris = suggerisciTrisAI(cavalli); // la tua funzione già esistente
+  const tris = suggerisciTrisAI(cavalli);
   if (tris.length === 3) {
     const patternTris = tris.map(c => {
       if (c.quota <= 2.5) return "B";
@@ -319,7 +334,10 @@ function analisiAIAvanzata() {
     report += `\n🤖 Predizione Tris AI: Non abbastanza dati per una predizione affidabile.\n`;
   }
 
-  document.getElementById("report").textContent = report;
+  return {
+    trisAI: tris,
+    reportTesto: report,
+  };
 }
 function analizzaQuotaECorsia(corsia, quota) {
   const datiStorici = {
@@ -359,7 +377,7 @@ function setupAutocomplete() {
       [...cavalli].forEach(nome => {
         if (nome.toLowerCase().startsWith(val.toLowerCase())) {
           const div = document.createElement("div");
-          div.innerHTML = <strong>${nome.substr(0, val.length)}</strong>${nome.substr(val.length)}<input type='hidden' value='${nome}'>;
+          div.innerHTML = `<strong>${nome.substr(0, val.length)}</strong>${nome.substr(val.length)}<input type='hidden' value='${nome}'>`;
           div.addEventListener("click", () => {
             input.value = nome;
             closeLists();
@@ -370,10 +388,11 @@ function setupAutocomplete() {
     });
     input.addEventListener("blur", () => setTimeout(closeLists, 100));
   });
+}
 
-  function closeLists() {
-    document.querySelectorAll(".autocomplete-items").forEach(el => el.remove());
-  }
+function closeLists() {
+  const items = document.querySelectorAll(".autocomplete-items");
+  items.forEach(item => item.remove());
 }
 
 function cercaGare() {
@@ -384,27 +403,53 @@ function cercaGare() {
 
   let index = 0;
   const win = window.open("", "Risultati Ricerca", "width=600,height=400");
+
   function mostraGara(i) {
     const g = risultati[i];
-    win.document.body.innerHTML = <h3>Gara ${i+1} di ${risultati.length}</h3><ul>
-      ${g.nomi.map((n, idx) => <li>Corsia ${idx+1}: ${n} (Quota: ${g.quote[idx]})</li>).join("")}
-      </ul><p><strong>Tris vincenti:</strong><br>${g.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("<br>")}</p>
+    win.document.body.innerHTML = `
+      <h3>Gara ${i + 1} di ${risultati.length}</h3>
+      <ul>
+        ${g.nomi.map((n, idx) => `<li>Corsia ${idx + 1}: ${n} (Quota: ${g.quote[idx]})</li>`).join("")}
+      </ul>
+      <p><strong>Tris vincenti:</strong><br>
+        ${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}
+      </p>
       <button onclick="window.opener.prevGara()">&larr;</button>
-      <button onclick="window.opener.nextGara()">&rarr;</button>;
+      <button onclick="window.opener.nextGara()">&rarr;</button>
+    `;
   }
-  window.prevGara = () => { if (index > 0) index--; mostraGara(index); };
-  window.nextGara = () => { if (index < risultati.length - 1) index++; mostraGara(index); };
+
+  window.prevGara = () => {
+    if (index > 0) index--;
+    mostraGara(index);
+  };
+
+  window.nextGara = () => {
+    if (index < risultati.length - 1) index++;
+    mostraGara(index);
+  };
+
   mostraGara(index);
 }
-
 function mostraTutteGare() {
   const gare = JSON.parse(localStorage.getItem("gare") || "[]");
   if (gare.length === 0) return alert("Nessuna gara salvata.");
+  
   const win = window.open("", "Gare Salvate", "width=600,height=600,scrollbars=yes");
-  win.document.body.innerHTML = <h2>${gare.length} Gare Salvate</h2> + gare.map((g, idx) => 
-    <h3>Gara ${idx + 1}</h3>
-    <ul>${g.nomi.map((n, i) => <li>Corsia ${i+1}: ${n} (Quota: ${g.quote[i]})</li>).join("")}</ul>
-    <p><strong>Tris:</strong><br>${g.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("<br>")}</p><hr>).join("");
+
+  win.document.body.innerHTML = `
+    <h2>${gare.length} Gare Salvate</h2>
+    ${gare.map((g, idx) => `
+      <h3>Gara ${idx + 1}</h3>
+      <ul>
+        ${g.nomi.map((n, i) => `<li>Corsia ${i + 1}: ${n} (Quota: ${g.quote[i]})</li>`).join("")}
+      </ul>
+      <p><strong>Tris:</strong><br>
+        ${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}
+      </p>
+      <hr>
+    `).join("")}
+  `;
 }
 
 function cancellaTutto() {
@@ -424,7 +469,7 @@ function exportCSV() {
   gare.forEach((g, idx) => {
     g.nomi.forEach((nome, i) => {
       g.tris.forEach(t => {
-        csv += ${idx + 1};${i + 1};${nome};${g.quote[i]};${t.combinazione};${t.quota}\n;
+        csv += `${idx + 1};${i + 1};${nome};${g.quote[i]};${t.combinazione};${t.quota}\n`;
       });
     });
   });
@@ -432,7 +477,7 @@ function exportCSV() {
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = gare_export_${new Date().toISOString().slice(0, 10)}.csv;
+  link.download = `gare_export_${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
 }
 function eliminaGaraPopup() {
@@ -442,7 +487,7 @@ function eliminaGaraPopup() {
     return;
   }
 
-  const id = prompt(Inserisci il numero ID della gara da eliminare (1-${gare.length}):);
+  const id = prompt(`Inserisci il numero ID della gara da eliminare (1-${gare.length}):`);
   if (!id || isNaN(id)) {
     alert("ID non valido.");
     return;
@@ -456,16 +501,16 @@ function eliminaGaraPopup() {
 
   const gara = gare[index];
   const conferma = confirm(
-    Vuoi davvero eliminare la gara #${id}?\n\n +
-    gara.nomi.map((n, i) => Corsia ${i + 1}: ${n} (Quota: ${gara.quote[i]})).join("\n") +
-    \n\nTris:\n${gara.tris.map(t => → ${t.combinazione} (Quota: ${t.quota})).join("\n")}
+    `Vuoi davvero eliminare la gara #${id}?\n\n` +
+    gara.nomi.map((n, i) => `Corsia ${i + 1}: ${n} (Quota: ${gara.quote[i]})`).join("\n") +
+    `\n\nTris:\n${gara.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`
   );
 
   if (!conferma) return;
 
   gare.splice(index, 1);
   localStorage.setItem("gare", JSON.stringify(gare));
-  alert(Gara #${id} eliminata con successo.);
+  alert(`Gara #${id} eliminata con successo.`);
   document.getElementById("report").textContent = "";
 }
 function eliminaTrisSingolaPopup() {
@@ -475,7 +520,7 @@ function eliminaTrisSingolaPopup() {
     return;
   }
 
-  const id = prompt(Inserisci il numero ID della gara da cui eliminare una tris (1-${gare.length}):);
+  const id = prompt(`Inserisci il numero ID della gara da cui eliminare una tris (1-${gare.length}):`);
   if (!id || isNaN(id)) {
     alert("ID non valido.");
     return;
@@ -493,9 +538,9 @@ function eliminaTrisSingolaPopup() {
     return;
   }
 
-  const listaTris = gara.tris.map((t, i) => #${i + 1} → ${t.combinazione} (Quota: ${t.quota})).join("\n");
+  const listaTris = gara.tris.map((t, i) => `#${i + 1} → ${t.combinazione} (Quota: ${t.quota})`).join("\n");
   const scelta = prompt(
-    Tris salvate nella gara #${id}:\n${listaTris}\n\nInserisci il numero della tris da eliminare:
+    `Tris salvate nella gara #${id}:\n${listaTris}\n\nInserisci il numero della tris da eliminare:`
   );
 
   const trisIndex = parseInt(scelta) - 1;
@@ -504,7 +549,7 @@ function eliminaTrisSingolaPopup() {
     return;
   }
 
-  const conferma = confirm(Vuoi davvero eliminare la tris #${scelta}: ${gara.tris[trisIndex].combinazione}?);
+  const conferma = confirm(`Vuoi davvero eliminare la tris #${scelta}: ${gara.tris[trisIndex].combinazione}?`);
   if (!conferma) return;
 
   gara.tris.splice(trisIndex, 1);
@@ -516,8 +561,8 @@ function eliminaTrisSingolaPopup() {
 
 function pulisciTabella(index) {
   for (let i = 1; i <= NUM_CORSIE; i++) {
-    document.getElementById(nome${index}_${i}).value = "";
-    document.getElementById(quota${index}_${i}).value = "";
+    document.getElementById(`nome${index}_${i}`).value = "";
+    document.getElementById(`quota${index}_${i}`).value = "";
   }
 }
 
@@ -526,6 +571,8 @@ window.addEventListener("DOMContentLoaded", () => {
   setupAutocomplete();
   startAIWatcher();
 });
+
+let riconosciuti = 0;
 function startVoiceInput() {
   if (!('webkitSpeechRecognition' in window)) {
     alert("Il tuo browser non supporta la dettatura vocale.");
@@ -547,19 +594,20 @@ function startVoiceInput() {
       .filter(s => s);
 
     let cavalliInseriti = 0;
-    let indexPartenza = 1;
 
-    // Trova il primo slot vuoto
+    // Trova il primo slot libero da compilare
+    let indexPartenza = 1;
     for (let i = 1; i <= NUM_CORSIE; i++) {
-      const nome = document.getElementById(`nome1_${i}`).value;
-      const quota = document.getElementById(`quota1_${i}`).value;
+      const nome = document.getElementById(`nome1_${i}`).value.trim();
+      const quota = document.getElementById(`quota1_${i}`).value.trim();
       if (!nome || !quota) {
         indexPartenza = i;
         break;
       }
     }
 
-    for (let i = 0; i < righe.length && indexPartenza + i <= NUM_CORSIE; i++) {
+    // Inserisci i dati dettati partendo dal primo slot libero
+    for (let i = 0; i < righe.length && (indexPartenza + i) <= NUM_CORSIE; i++) {
       const riga = righe[i];
       const match = riga.match(/([A-Za-zÀ-ÿ'\- ]+)\s+(\d+(?:[.,]\d+)?)/);
       if (match) {
@@ -567,13 +615,18 @@ function startVoiceInput() {
         const quota = match[2].replace(",", ".");
         const idx = indexPartenza + i;
 
-        document.getElementById(`nome1_${idx}`).value = nome;
-        document.getElementById(`quota1_${idx}`).value = quota;
-        cavalliInseriti++;
+        const nomeInput = document.getElementById(`nome1_${idx}`);
+        const quotaInput = document.getElementById(`quota1_${idx}`);
+
+        if (nomeInput && quotaInput) {
+          nomeInput.value = nome;
+          quotaInput.value = quota;
+          cavalliInseriti++;
+        }
       }
     }
 
-    alert(`${cavalliInseriti} cavalli su ${NUM_CORSIE} inseriti correttamente.`);
+    alert(`✅ ${cavalliInseriti} cavalli su ${NUM_CORSIE} inseriti correttamente.`);
 
     if (typeof aggiornaAnalisiAI === "function") {
       aggiornaAnalisiAI();
@@ -581,7 +634,7 @@ function startVoiceInput() {
   };
 
   recognition.onerror = function(event) {
-    alert("Errore durante la dettatura: " + event.error);
+    alert("❌ Errore durante la dettatura: " + event.error);
   };
 
   recognition.start();
@@ -622,39 +675,41 @@ function startAIWatcher() {
     document.body.appendChild(badge);
   }
 
-  function aggiornaBadgeOrario() {
-    const ora = new Date();
-    const orario = ora.toLocaleTimeString("it-IT", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    badge.innerText = AI aggiornata alle ${orario};
-  }
-
-  // Watcher ogni secondo
-  setInterval(() => {
-    const { nomi, quote } = getGaraData(1);
-    if (nomi.includes("") || quote.includes("")) return;
-
-    const firmaAttuale = nomi.join("|") + "::" + quote.join("|");
-    if (firmaAttuale === ultimaFirma) return;
-
-    const gare = JSON.parse(localStorage.getItem("gare") || "[]");
-    const reportAI = analisiAIAvanzata(nomi, quote, gare);
-    mostraReport(reportAI.reportTesto);
-
-    ultimaFirma = firmaAttuale;
-    aggiornaBadgeOrario();
-  }, 1000);
+function aggiornaBadgeOrario() {
+  const ora = new Date();
+  const orario = ora.toLocaleTimeString("it-IT", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  badge.innerText = `AI aggiornata alle ${orario}`;
 }
+
+// Watcher ogni secondo
+setInterval(() => {
+  const { nomi, quote } = getGaraData(1);
+  if (nomi.includes("") || quote.includes("")) return;
+
+  const firmaAttuale = nomi.join("|") + "::" + quote.join("|");
+  if (firmaAttuale === ultimaFirma) return;
+
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  const reportAI = analisiAIAvanzata(nomi, quote, gare);
+  mostraReport(reportAI.reportTesto);
+
+  ultimaFirma = firmaAttuale;
+  aggiornaBadgeOrario();
+}, 1000);
+}
+
 function mostraOrarioAggiornamento() {
   const now = new Date();
   const orario = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   const div = document.getElementById("ai-status");
   if (div) {
-    div.textContent = 🔄 Analisi aggiornata alle ${orario};
+    div.textContent = `🔄 Analisi aggiornata alle ${orario}`;
   } else {
     const newDiv = document.createElement("div");
     newDiv.id = "ai-status";
     newDiv.style = "margin-top:5px; font-size: 0.9em; color: gray;";
-    newDiv.textContent = 🔄 Analisi aggiornata alle ${orario};
+    newDiv.textContent = `🔄 Analisi aggiornata alle ${orario}`;
     document.getElementById("report-ai")?.appendChild(newDiv);
   }
 }
@@ -689,7 +744,7 @@ function mostraTooltipQuote(quote, gare) {
 
     const data = quoteMap[val];
     const perc = ((data.podi / data.tot) * 100).toFixed(1);
-    input.title = 📊 Quota ${val} → ${perc}% podio su ${data.tot} casi;
+    input.title = `📊 Quota ${val} → ${perc}% podio su ${data.tot} casi`;
   });
 }
 </script>
