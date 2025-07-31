@@ -2,8 +2,20 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Archivio Gare Cavalli</title>
+
+  <!-- PWA essentials -->
   <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#007bff">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <!-- Mobile app compatibility (opzionale ma utile) -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Style -->
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -68,6 +80,17 @@
       display: none;
     }
   </style>
+
+  <!-- Service Worker registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log('✅ Service Worker registrato:', reg.scope))
+          .catch(err => console.error('❌ Errore nella registrazione SW:', err));
+      });
+    }
+  </script>
 </head>
 <body>
 <h2>Archivio Gare Cavalli</h2>
@@ -98,40 +121,17 @@
 <script>
 const NUM_CORSIE = 6;
 
+// Inizializza tabella
 function inizializzaTabella() {
   const tbody = document.getElementById("body1");
-  tbody.innerHTML = ""; // pulizia per evitare duplicati
   for (let i = 1; i <= NUM_CORSIE; i++) {
-    const row = document.createElement("tr");
-
-    const cellCorsia = document.createElement("td");
-    cellCorsia.textContent = i;
-
-    const cellNome = document.createElement("td");
-    const inputNome = document.createElement("input");
-    inputNome.type = "text";
-    inputNome.id = `nome1_${i}`;
-    inputNome.name = `cavallo${i}`;
-    inputNome.className = "nome";
-    inputNome.autocomplete = "off";
-    cellNome.appendChild(inputNome);
-
-    const cellQuota = document.createElement("td");
-    const inputQuota = document.createElement("input");
-    inputQuota.type = "number";
-    inputQuota.step = "0.01";
-    inputQuota.inputMode = "decimal";
-    inputQuota.pattern = "[0-9]*";
-    inputQuota.id = `quota1_${i}`;
-    inputQuota.name = `quota${i}`;
-    inputQuota.className = "quota";
-    cellQuota.appendChild(inputQuota);
-
-    row.appendChild(cellCorsia);
-    row.appendChild(cellNome);
-    row.appendChild(cellQuota);
-
-    tbody.appendChild(row);
+    tbody.innerHTML += `
+      <tr>
+        <td>${i}</td>
+        <td><input type="text" id="nome1_${i}" class="nome" name="cavallo${i}" autocomplete="off" /></td>
+<td><input type="number" step="0.01" id="quota1_${i}" class="quota" name="quota${i}" /></td>
+      </tr>
+    `;
   }
 }
 
@@ -206,29 +206,6 @@ function salvaGara(index) {
   const quoteStr = JSON.stringify(quote.map(q => parseFloat(q).toFixed(2)));
   const nomiStr = JSON.stringify(nomi);
 
-  // Gara identica già salvata
-  const garaEsatta = gare.find(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr);
-  if (garaEsatta) {
-    let msg = "Questa gara esiste già.\nTris salvate:\n";
-    msg += garaEsatta.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n");
-    if (confirm(msg + "\n\nVuoi salvare comunque un'altra tris?")) {
-      let tris = prompt("Inserisci nuova tris vincente (es. 1,4,5):");
-      if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
-      let quotaTris = prompt("Quota tris (es. 18.5):");
-      if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
-      if (garaEsatta.tris.some(t => t.combinazione === tris && parseFloat(t.quota) === parseFloat(quotaTris))) {
-        alert("✅ Abbiamo vinto allora!");
-        return;
-      }
-      garaEsatta.tris.push({ combinazione: tris, quota: parseFloat(quotaTris) });
-      localStorage.setItem("gare", JSON.stringify(gare));
-      alert("Tris aggiunta con successo.");
-      return;
-    } else {
-      return;
-    }
-  }
-
   // Quote uguali, cavalli diversi
   const gareStessaQuota = gare.filter(g => JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr && JSON.stringify(g.nomi) !== nomiStr);
   if (gareStessaQuota.length > 0) {
@@ -242,37 +219,54 @@ function salvaGara(index) {
   // Nomi uguali, quote diverse
   const gareStessiNomi = gare.filter(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) !== quoteStr);
   if (gareStessiNomi.length > 0) {
-    let msg = "⚠️ Esiste già una gara con gli stessi cavalli ma quote differenti:\n";
+    let msg = `⚠️ Esiste già una gara con gli stessi cavalli ma quote differenti:\n`;
     gareStessiNomi.forEach((g, i) => {
       msg += `\nGara ${i + 1} → Quote: ${g.quote.join(", ")}\nTris:\n${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`;
     });
-    if (!confirm(msg + "\n\nVuoi salvare comunque?")) return;
+    if (!confirm(msg + `\n\nVuoi salvare comunque?`)) return;
   }
 
-  // Analisi AI prima del salvataggio
+  // Esegui analisi AI
   const reportAI = analisiAIAvanzata(nomi, quote, gare);
+
+  // Chiedi conferma
   if (!confirm("Vuoi procedere con il salvataggio della gara dopo l’analisi AI?")) {
-    mostraReport(reportAI.reportTesto);
+    mostraReport(reportAI.reportTesto); // mostra il riquadro AI se clicchi Annulla
     return;
   }
 
-  let tris = prompt("Inserisci tris vincente (es. 2,5,6):");
-  if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
+  mostraReport(reportAI.reportTesto); // opzionale anche qui
 
-  let quotaTris = prompt("Quota tris (es. 12.5):");
+  // Gara identica già salvata
+  const garaEsatta = gare.find(g => JSON.stringify(g.nomi) === nomiStr && JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr);
+  if (garaEsatta) {
+    let msg = `⚠️ Questa gara esiste già.\nTris salvate:\n`;
+    msg += garaEsatta.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n");
+    if (confirm(msg + `\n\nVuoi salvare comunque un'altra tris?`)) {
+      let tris = prompt("Inserisci nuova tris vincente (es. 1,4,5):");
+      if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
+      let quotaTris = prompt("Quota tris (es. 18.5):");
+      if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
+      if (garaEsatta.tris.some(t => t.combinazione === tris && parseFloat(t.quota) === parseFloat(quotaTris))) {
+        alert("✅ Abbiamo vinto allora!");
+        return;
+      }
+      garaEsatta.tris.push({ combinazione: tris, quota: quotaTris });
+      localStorage.setItem("gare", JSON.stringify(gare));
+      alert("Nuova tris aggiunta.");
+    }
+    return;
+  }
+
+  // Gara nuova → chiedi tris e quota
+  let tris = prompt("Inserisci tris vincente (es. 1,4,5):");
+  if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
+  let quotaTris = prompt("Quota tris (es. 18.5):");
   if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
 
-  const nuovaGara = {
-    nomi,
-    quote: quote.map(q => parseFloat(q)),
-    tris: [{ combinazione: tris, quota: parseFloat(quotaTris) }]
-  };
-
-  gare.push(nuovaGara);
+  gare.push({ nomi, quote, tris: [{ combinazione: tris, quota: quotaTris }] });
   localStorage.setItem("gare", JSON.stringify(gare));
-
-  alert("✅ Gara salvata con successo.");
-  aggiornaAnalisiAI?.();
+  alert("Gara salvata.");
 }
 
 function analisiAIAvanzata(nomi, quote, gare) {
@@ -492,11 +486,10 @@ function setupAutocomplete() {
     });
     input.addEventListener("blur", () => setTimeout(closeLists, 100));
   });
-}
 
-function closeLists() {
-  const items = document.querySelectorAll(".autocomplete-items");
-  items.forEach(item => item.remove());
+  function closeLists() {
+    document.querySelectorAll(".autocomplete-items").forEach(el => el.remove());
+  }
 }
 
 function cercaGare() {
@@ -507,53 +500,27 @@ function cercaGare() {
 
   let index = 0;
   const win = window.open("", "Risultati Ricerca", "width=600,height=400");
-
   function mostraGara(i) {
     const g = risultati[i];
-    win.document.body.innerHTML = `
-      <h3>Gara ${i + 1} di ${risultati.length}</h3>
-      <ul>
-        ${g.nomi.map((n, idx) => `<li>Corsia ${idx + 1}: ${n} (Quota: ${g.quote[idx]})</li>`).join("")}
-      </ul>
-      <p><strong>Tris vincenti:</strong><br>
-        ${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}
-      </p>
+    win.document.body.innerHTML = `<h3>Gara ${i+1} di ${risultati.length}</h3><ul>
+      ${g.nomi.map((n, idx) => `<li>Corsia ${idx+1}: ${n} (Quota: ${g.quote[idx]})</li>`).join("")}
+      </ul><p><strong>Tris vincenti:</strong><br>${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}</p>
       <button onclick="window.opener.prevGara()">&larr;</button>
-      <button onclick="window.opener.nextGara()">&rarr;</button>
-    `;
+      <button onclick="window.opener.nextGara()">&rarr;</button>`;
   }
-
-  window.prevGara = () => {
-    if (index > 0) index--;
-    mostraGara(index);
-  };
-
-  window.nextGara = () => {
-    if (index < risultati.length - 1) index++;
-    mostraGara(index);
-  };
-
+  window.prevGara = () => { if (index > 0) index--; mostraGara(index); };
+  window.nextGara = () => { if (index < risultati.length - 1) index++; mostraGara(index); };
   mostraGara(index);
 }
+
 function mostraTutteGare() {
   const gare = JSON.parse(localStorage.getItem("gare") || "[]");
   if (gare.length === 0) return alert("Nessuna gara salvata.");
-  
   const win = window.open("", "Gare Salvate", "width=600,height=600,scrollbars=yes");
-
-  win.document.body.innerHTML = `
-    <h2>${gare.length} Gare Salvate</h2>
-    ${gare.map((g, idx) => `
-      <h3>Gara ${idx + 1}</h3>
-      <ul>
-        ${g.nomi.map((n, i) => `<li>Corsia ${i + 1}: ${n} (Quota: ${g.quote[i]})</li>`).join("")}
-      </ul>
-      <p><strong>Tris:</strong><br>
-        ${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}
-      </p>
-      <hr>
-    `).join("")}
-  `;
+  win.document.body.innerHTML = `<h2>${gare.length} Gare Salvate</h2>` + gare.map((g, idx) => `
+    <h3>Gara ${idx + 1}</h3>
+    <ul>${g.nomi.map((n, i) => `<li>Corsia ${i+1}: ${n} (Quota: ${g.quote[i]})</li>`).join("")}</ul>
+    <p><strong>Tris:</strong><br>${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}</p><hr>`).join("");
 }
 
 function cancellaTutto() {
@@ -675,70 +642,41 @@ window.addEventListener("DOMContentLoaded", () => {
   setupAutocomplete();
   startAIWatcher();
 });
-
-let riconosciuti = 0;
 function startVoiceInput() {
-  if (!('webkitSpeechRecognition' in window)) {
-    alert("Il tuo browser non supporta la dettatura vocale.");
-    return;
-  }
-
-  const recognition = new webkitSpeechRecognition();
+  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
   recognition.lang = "it-IT";
   recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
-  alert("🎙️ Sono in ascolto...");
-
   recognition.onresult = function(event) {
-    const transcript = event.results[0][0].transcript;
-    const righe = transcript
-      .split(/[\n,;]+|\s+e\s+|\s+poi\s+/i)
-      .map(s => s.trim())
-      .filter(s => s);
+    const result = event.results[0][0].transcript;
 
-    let cavalliInseriti = 0;
+    // Accetta anche "punto" come separatore oltre a "virgola" e ","
+    const righe = result.split(/virgola|punto|,|\./i);
 
-    // Trova il primo slot libero da compilare
-    let indexPartenza = 1;
-    for (let i = 1; i <= NUM_CORSIE; i++) {
-      const nome = document.getElementById(`nome1_${i}`).value.trim();
-      const quota = document.getElementById(`quota1_${i}`).value.trim();
-      if (!nome || !quota) {
-        indexPartenza = i;
-        break;
-      }
-    }
-
-    // Inserisci i dati dettati partendo dal primo slot libero
-    for (let i = 0; i < righe.length && (indexPartenza + i) <= NUM_CORSIE; i++) {
-      const riga = righe[i];
-      const match = riga.match(/([A-Za-zÀ-ÿ'\- ]+)\s+(\d+(?:[.,]\d+)?)/);
-      if (match) {
-        const nome = match[1].trim();
-        const quota = match[2].replace(",", ".");
-        const idx = indexPartenza + i;
-
-        const nomeInput = document.getElementById(`nome1_${idx}`);
-        const quotaInput = document.getElementById(`quota1_${idx}`);
-
-        if (nomeInput && quotaInput) {
-          nomeInput.value = nome;
-          quotaInput.value = quota;
-          cavalliInseriti++;
+    righe.forEach((riga, i) => {
+      const parts = riga.trim().split(" ");
+      if (parts.length >= 2) {
+        const nome = capitalize(parts.slice(0, -1).join(" ").trim());
+        const quota = parts[parts.length - 1].replace(",", ".").trim();
+        const inputNome = document.querySelector(`#gara1 input[name="cavallo${i + 1}"]`);
+        const inputQuota = document.querySelector(`#gara1 input[name="quota${i + 1}"]`);
+        if (inputNome && inputQuota) {
+          inputNome.value = nome;
+          inputQuota.value = quota;
         }
       }
-    }
+    });
 
-    alert(`✅ ${cavalliInseriti} cavalli su ${NUM_CORSIE} inseriti correttamente.`);
-
-    if (typeof aggiornaAnalisiAI === "function") {
-      aggiornaAnalisiAI();
-    }
+    // Analisi AI automatica subito dopo la dettatura
+    const dati = getGaraData(1);
+    const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+    const reportAI = analisiAIAvanzata(dati.nomi, dati.quote, gare);
+    mostraReport(reportAI.reportTesto);
   };
 
   recognition.onerror = function(event) {
-    alert("❌ Errore durante la dettatura: " + event.error);
+    alert("Errore nella dettatura vocale: " + event.error);
   };
 
   recognition.start();
@@ -779,33 +717,31 @@ function startAIWatcher() {
     document.body.appendChild(badge);
   }
 
-function aggiornaBadgeOrario() {
-  const ora = new Date();
-  const orario = ora.toLocaleTimeString("it-IT", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  badge.innerText = `AI aggiornata alle ${orario}`;
+  function aggiornaBadgeOrario() {
+    const ora = new Date();
+    const orario = ora.toLocaleTimeString("it-IT", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    badge.innerText = `AI aggiornata alle ${orario}`;
+  }
+
+  // Watcher ogni secondo
+  setInterval(() => {
+    const { nomi, quote } = getGaraData(1);
+    if (nomi.includes("") || quote.includes("")) return;
+
+    const firmaAttuale = nomi.join("|") + "::" + quote.join("|");
+    if (firmaAttuale === ultimaFirma) return;
+
+    const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+    const reportAI = analisiAIAvanzata(nomi, quote, gare);
+    mostraReport(reportAI.reportTesto);
+
+    ultimaFirma = firmaAttuale;
+    aggiornaBadgeOrario();
+  }, 1000);
 }
-
-// Watcher ogni secondo
-setInterval(() => {
-  const { nomi, quote } = getGaraData(1);
-  if (nomi.includes("") || quote.includes("")) return;
-
-  const firmaAttuale = nomi.join("|") + "::" + quote.join("|");
-  if (firmaAttuale === ultimaFirma) return;
-
-  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
-  const reportAI = analisiAIAvanzata(nomi, quote, gare);
-  mostraReport(reportAI.reportTesto);
-
-  ultimaFirma = firmaAttuale;
-  aggiornaBadgeOrario();
-}, 1000);
-}
-
 function mostraOrarioAggiornamento() {
   const now = new Date();
   const orario = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
   const div = document.getElementById("ai-status");
   if (div) {
     div.textContent = `🔄 Analisi aggiornata alle ${orario}`;
@@ -851,20 +787,6 @@ function mostraTooltipQuote(quote, gare) {
     input.title = `📊 Quota ${val} → ${perc}% podio su ${data.tot} casi`;
   });
 }
-
-// ✅ Registrazione del Service Worker
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
-    navigator.serviceWorker.register('service-worker.js')
-      .then(function(registration) {
-        console.log('✅ ServiceWorker registrato con successo:', registration.scope);
-      })
-      .catch(function(error) {
-        console.error('❌ Errore nella registrazione del ServiceWorker:', error);
-      });
-  });
-}
 </script>
-
 </body>
 </html>
