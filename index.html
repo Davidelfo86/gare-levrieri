@@ -1,0 +1,1795 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Archivio Gare Cavalli</title>
+
+  <!-- PWA essentials -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#007bff">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <!-- Mobile app compatibility (opzionale ma utile) -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <!-- Style -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 900px;
+      margin: auto;
+    }
+    .gara-container {
+      margin-bottom: 30px;
+    }
+    .gara {
+      width: 100%;
+      position: relative;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+      position: relative;
+    }
+    input[type="text"], input[type="number"] {
+      width: 90%;
+      padding: 4px;
+    }
+    input.quota {
+      width: 60px;
+    }
+    button {
+      margin-top: 5px;
+      margin-right: 10px;
+    }
+    .autocomplete-items {
+      position: absolute;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      z-index: 99;
+      max-height: 150px;
+      overflow-y: auto;
+      top: 100%;
+      left: 0;
+      right: 0;
+    }
+    .autocomplete-items div {
+      padding: 5px;
+      cursor: pointer;
+    }
+    .autocomplete-items div:hover {
+      background-color: #f0f0f0;
+    }
+    #report {
+      margin-top: 20px;
+      background: #f9f9f9;
+      border: 1px solid #ccc;
+      padding: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+    #importFile {
+      display: none;
+    }
+  </style>
+
+  <!-- Service Worker registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js')
+          .then(reg => console.log('✅ Service Worker registrato:', reg.scope))
+          .catch(err => console.error('❌ Errore nella registrazione SW:', err));
+      });
+    }
+  </script>
+</head>
+<body>
+<h2>Archivio Gare Cavalli</h2>
+
+<div class="gara-container">
+  <div class="gara">
+    <table id="gara1">
+      <thead><tr><th>Corsia</th><th>Nome</th><th>Quota</th></tr></thead>
+      <tbody id="body1"></tbody>
+    </table>
+    <button onclick="salvaGara(1)">Salva</button>
+    <button onclick="pulisciTabella(1)">Pulisci Tabella</button>
+    <button onclick="cercaGare()">Cerca</button>
+    <button onclick="startVoiceInput()">🎙️ Detta cavalli</button>
+  </div>
+</div>
+
+<button onclick="cancellaTutto()">Cancella Tutto (Storage)</button>
+<button onclick="mostraTutteGare()">Mostra tutte le gare salvate</button>
+<button onclick="exportBackup()">Backup dati (JSON)</button>
+<button onclick="exportCSV()">Esporta in CSV</button>
+<button onclick="document.getElementById('importFile').click()">Importa backup (JSON)</button>
+<button onclick="eliminaGaraPopup()">🗑️ Elimina Gara</button>
+<button onclick="eliminaTrisSingolaPopup()">➖ Elimina una Tris</button>
+<input type="file" id="importFile" accept=".json" onchange="importaBackup(event)">
+
+<div id="report"></div>
+<script>
+const NUM_CORSIE = 6;
+const datiStoriciPerCorsia = {
+  1: {
+    vittorie: [2.1, 3.0, 4.5],
+    podi: [2.0, 3.0, 4.0, 5.0]
+  },
+  2: {
+    vittorie: [2.3, 3.2, 4.1],
+    podi: [2.5, 3.5, 5.0]
+  },
+  3: {
+    vittorie: [1.9, 2.6, 3.8],
+    podi: [2.0, 3.2, 4.5]
+  },
+  4: {
+    vittorie: [3.5, 4.2, 5.1],
+    podi: [3.8, 4.5, 6.0]
+  },
+  5: {
+    vittorie: [4.8, 5.5, 6.2],
+    podi: [5.0, 5.5, 6.8]
+  },
+  6: {
+    vittorie: [5.5, 6.2, 7.0],
+    podi: [5.8, 6.5, 7.2]
+  }
+};
+
+// Inizializza tabella
+function inizializzaTabella() {
+  const tbody = document.getElementById("body1");
+  tbody.innerHTML = ""; // Pulisce la tabella per evitare duplicati
+  for (let i = 1; i <= NUM_CORSIE; i++) {
+    tbody.innerHTML += `
+      <tr>
+        <td>${i}</td>
+        <td><input type="text" id="nome1_${i}" class="nome" name="cavallo${i}" autocomplete="off" required /></td>
+        <td><input type="number" step="0.01" min="0.01" id="quota1_${i}" class="quota" name="quota${i}" required /></td>
+      </tr>
+    `;
+  }
+}
+
+// Backup automatico
+setInterval(() => {
+  const gare = localStorage.getItem("gare");
+  if (gare) localStorage.setItem("backup_gare", gare);
+}, 60000);
+
+// Backup manuale
+function exportBackup() {
+  const data = localStorage.getItem("gare") || "[]";
+  const blob = new Blob([data], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `gare_backup_${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+}
+
+// Importa backup
+function importaBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const dati = JSON.parse(e.target.result);
+      if (Array.isArray(dati)) {
+        localStorage.setItem("gare", JSON.stringify(dati));
+        alert("Backup importato con successo.");
+      } else {
+        alert("Formato file non valido.");
+      }
+    } catch {
+      alert("Errore nella lettura del file.");
+    }
+  };
+  reader.readAsText(file);
+}
+function capitalize(str) {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+function getGaraData(numeroGara) {
+  const cavalli = [];
+  let valid = true;
+  let errore = "";
+
+  const nomiInputs = document.querySelectorAll(`#gara${numeroGara} input[name^="cavallo"]`);
+  const quoteInputs = document.querySelectorAll(`#gara${numeroGara} input[name^="quota"]`);
+
+  if (nomiInputs.length !== NUM_CORSIE || quoteInputs.length !== NUM_CORSIE) {
+    return { cavalli: [], valid: false, errore: "Numero di corsie non valido" };
+  }
+
+  const nomiSet = new Set();
+  nomiInputs.forEach((input, i) => {
+    const nome = capitalize(input.value.trim());
+    const quotaStr = quoteInputs[i].value.trim();
+    const quota = parseFloat(quotaStr);
+
+    if (!nome || nomiSet.has(nome.toLowerCase())) {
+      valid = false;
+      errore = "Nomi dei cavalli mancanti o duplicati";
+    } else if (isNaN(quota) || quota <= 0) {
+      valid = false;
+      errore = "Quote non valide";
+    } else {
+      nomiSet.add(nome.toLowerCase());
+      cavalli.push({
+        nome,
+        quota: parseFloat(quota.toFixed(2)),
+        corsia: i + 1
+      });
+    }
+  });
+
+  return { cavalli, valid, errore };
+}
+function mostraReport(testo) {
+  document.getElementById("report").textContent = testo;
+}
+
+function salvaGara(index) {
+  const { cavalli, valid } = getGaraData(index);
+  if (!valid || cavalli.length !== NUM_CORSIE) {
+    alert("Compila tutti i campi con dati validi prima di salvare.");
+    return;
+  }
+
+  let gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  const nomi = cavalli.map(c => c.nome);
+  const quote = cavalli.map(c => c.quota.toFixed(2));
+  const quoteStr = JSON.stringify(quote);
+  const nomiStr = JSON.stringify(nomi);
+
+  // Quote uguali, cavalli diversi
+  const gareStessaQuota = gare.filter(g =>
+    JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr &&
+    JSON.stringify(g.nomi) !== nomiStr
+  );
+  if (gareStessaQuota.length > 0) {
+    let msg = `⚠️ Questa combinazione di quote è già presente in ${gareStessaQuota.length} gara/e con cavalli diversi.\n`;
+    gareStessaQuota.forEach((g, i) => {
+      msg += `\nGara ${i + 1} → Tris vincenti:\n${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`;
+    });
+    alert(msg);
+  }
+
+  // Nomi uguali, quote diverse
+  const gareStessiNomi = gare.filter(g =>
+    JSON.stringify(g.nomi) === nomiStr &&
+    JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) !== quoteStr
+  );
+  if (gareStessiNomi.length > 0) {
+    let msg = `⚠️ Esiste già una gara con gli stessi cavalli ma quote differenti:\n`;
+    gareStessiNomi.forEach((g, i) => {
+      msg += `\nGara ${i + 1} → Quote: ${g.quote.join(", ")}\nTris:\n${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`;
+    });
+    if (!confirm(msg + `\n\nVuoi salvare comunque?`)) return;
+  }
+
+  let reportAI = null;
+  try {
+    const analisiStoriche = caricaAnalisiStoriche();
+    const trisVincentiStoriche = gare.map(g => g.tris || []);
+    const trisAI = suggerisciTrisAI(cavalli, analisiStoriche, gare);
+    reportAI = analisiAIAvanzata(cavalli, trisVincentiStoriche, gare, trisAI);
+    mostraReport(reportAI);
+
+    if (!confirm("Vuoi procedere con il salvataggio della gara dopo l’analisi AI?")) {
+      return;
+    }
+  } catch (err) {
+    alert("❌ Errore durante l'analisi AI: " + err.message);
+    console.error(err);
+    return;
+  }
+
+  // Gara identica già salvata
+  const garaEsatta = gare.find(g =>
+    JSON.stringify(g.nomi) === nomiStr &&
+    JSON.stringify(g.quote.map(q => parseFloat(q).toFixed(2))) === quoteStr
+  );
+
+  if (garaEsatta) {
+    let msg = `⚠️ Questa gara esiste già.\nTris salvate:\n`;
+    msg += garaEsatta.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n");
+    if (confirm(msg + `\n\nVuoi salvare comunque un'altra tris?`)) {
+      let tris = prompt("Inserisci nuova tris vincente (es. 1,4,5):");
+      if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
+      let quotaTris = prompt("Quota tris (es. 18.5):");
+      if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
+      if (garaEsatta.tris.some(t => t.combinazione === tris && parseFloat(t.quota) === parseFloat(quotaTris))) {
+        alert("✅ Abbiamo vinto allora!");
+        return;
+      }
+      garaEsatta.tris.push({ combinazione: tris, quota: quotaTris });
+      localStorage.setItem("gare", JSON.stringify(gare));
+      alert("Nuova tris aggiunta.");
+    }
+    return;
+  }
+
+  // Gara nuova → chiedi tris e quota
+  let tris = prompt("Inserisci tris vincente (es. 1,4,5):");
+  if (!tris || tris.split(",").length !== 3) return alert("Formato tris non valido.");
+  let quotaTris = prompt("Quota tris (es. 18.5):");
+  if (!quotaTris || isNaN(parseFloat(quotaTris))) return alert("Quota non valida.");
+
+  gare.push({ nomi, quote, tris: [{ combinazione: tris, quota: quotaTris }] });
+  localStorage.setItem("gare", JSON.stringify(gare));
+  alert("✅ Gara salvata con successo.");
+}
+function classificaFasciaSommaQuote(somma) {
+  if (somma <= 28) return "A";
+  if (somma <= 35) return "B";
+  if (somma <= 42) return "C";
+  if (somma <= 52) return "D";
+  return "E";
+}
+function valutaSfavorito(cavallo, analisiStoriche, sommaQuoteFascia) {
+  const key = `${cavallo.corsia}|${parseFloat(cavallo.quota)}`;
+  const dati = analisiStoriche[key] || { gare: 0, podi: 0, vittorie: 0 };
+  const percVittorie = dati.gare > 0 ? (dati.vittorie / dati.gare) * 100 : 0;
+  const percPodi = dati.gare > 0 ? (dati.podi / dati.gare) * 100 : 0;
+
+  let indice = 0;
+
+  // Bonus se ha già vinto o fatto podio in condizioni simili
+  if (percVittorie >= 20) indice += 2;
+  else if (percPodi >= 30) indice += 1;
+
+  // Malus se ha fatto molte gare senza mai podio
+  if (dati.gare >= 5 && dati.podi === 0) indice -= 2;
+  else if (dati.gare >= 5 && dati.vittorie === 0) indice -= 1;
+
+  return Math.max(-2, Math.min(2, indice));
+}
+function frequenzaCavalliInTrisVincenti(trisAI, gare) {
+  if (!Array.isArray(gare)) return [];
+
+  return trisAI.map(cavallo => {
+    const nomeCavallo = cavallo.nome.toLowerCase();
+    let count = 0;
+    gare.forEach(g => {
+      if (!g.tris || !Array.isArray(g.tris)) return;
+      g.tris.forEach(t => {
+        const cavalliTris = t.combinazione.split(",").map(n => n.trim().toLowerCase());
+        if (cavalliTris.includes(nomeCavallo)) {
+          count++;
+        }
+      });
+    });
+
+    return { nome: cavallo.nome, presenze: count };
+  });
+}
+function controllaCombinazioniTossiche(trisAI, gare) {
+  if (!Array.isArray(gare) || trisAI.length !== 3) return { tossica: false, messaggio: "" };
+
+  const patternTrisAI = trisAI.map(c => quotaPattern(c.quota)).join("-");
+  const corsieTrisAI = trisAI.map(c => c.corsia).sort((a, b) => a - b).join("-");
+
+  let occorrenze = 0;
+  let vittorie = 0;
+
+  gare.forEach(g => {
+    if (!g.tris || !Array.isArray(g.tris)) return;
+
+    g.tris.forEach(t => {
+      const combinazione = t.combinazione.split(",").map(n => n.trim());
+      const quoteTris = combinazione.map(nome => {
+        const idx = g.nomi.findIndex(n => n.toLowerCase() === nome.toLowerCase());
+        return idx >= 0 ? parseFloat(g.quote[idx]) : null;
+      });
+      const corsie = combinazione.map(nome => {
+        const idx = g.nomi.findIndex(n => n.toLowerCase() === nome.toLowerCase());
+        return idx >= 0 ? idx + 1 : null;
+      });
+
+      if (quoteTris.includes(null) || corsie.includes(null)) return;
+
+      const patternStorico = quoteTris.map(q => quotaPattern(q)).join("-");
+      const corsieStoriche = corsie.sort((a, b) => a - b).join("-");
+
+      if (patternStorico === patternTrisAI && corsieStoriche === corsieTrisAI) {
+        occorrenze++;
+        vittorie++; // è una tris vincente salvata
+      }
+    });
+  });
+
+  if (occorrenze >= 5 && vittorie === 0) {
+    return {
+      tossica: true,
+      messaggio: `☠️ Attenzione: la combinazione corsie ${corsieTrisAI} con pattern ${patternTrisAI} è apparsa ${occorrenze} volte senza mai vincere. Evitare!`
+    };
+  }
+
+  return { tossica: false, messaggio: "" };
+}
+function classificaFasciaQuota(sommaQuote) {
+  if (sommaQuote <= 10) return "Fascia A";
+  if (sommaQuote <= 18) return "Fascia B";
+  if (sommaQuote <= 26) return "Fascia C";
+  if (sommaQuote <= 34) return "Fascia D";
+  return "Fascia E";
+}
+function analizzaFasciaStorica(favorito, sfavorito, fascia, trisAI) {
+  let risultato = "";
+  if (!favorito || !sfavorito || !fascia) return "⚠️ Dati incompleti per analisi fascia.\n";
+
+  // Esempio: Fascia A → favorito statisticamente vincente
+  if (fascia === "Fascia A") {
+    risultato += `✅ In ${fascia}, i favoriti spesso vincono.\n`;
+    if (favorito.percentualePrimo > 50) {
+      risultato += `🏅 Il favorito ha ${favorito.percentualePrimo}% di vittorie.\n`;
+    }
+  }
+
+  // Possibili sorprese nella fascia alta
+  if (fascia === "Fascia E" && sfavorito.percentualePodio > 30) {
+    risultato += `🎯 Attenzione: in ${fascia} gli sfavoriti come ${sfavorito.nome} sono andati a podio il ${sfavorito.percentualePodio}% delle volte!\n`;
+  }
+
+  return risultato;
+}
+
+function analisiAIAvanzata(cavalli, trisVincentiStoriche, gare, trisAI = []) {
+  // Validazione dei dati in ingresso
+  if (!Array.isArray(cavalli) || cavalli.length !== NUM_CORSIE || cavalli.some(c => !c.nome || isNaN(c.quota) || !c.corsia)) {
+    return "⚠️ Errore: dati dei cavalli non validi o incompleti.";
+  }
+  if (!Array.isArray(gare)) {
+    return "⚠️ Errore: dati storici delle gare non validi.";
+  }
+  if (!Array.isArray(trisVincentiStoriche)) {
+    return "⚠️ Errore: tris storiche non valide.";
+  }
+
+  let output = "📊 Analisi AI della gara:\n";
+
+  // Calcolo somma quote e fascia
+  const sommaQuote = cavalli.reduce((sum, c) => sum + parseFloat(c.quota), 0);
+  const fascia = classificaFasciaSommaQuote(sommaQuote);
+  const pattern = cavalli.map(c => classificaQuota(c.quota)).join("-");
+  const favorito = cavalli.reduce((a, b) => (a.quota < b.quota ? a : b), cavalli[0]);
+  const sfavorito = cavalli.reduce((a, b) => (a.quota > b.quota ? a : b), cavalli[0]);
+
+  // 1. Analisi del pattern di quote
+  const rangePattern = quotaStoricaPerPatternQuote(pattern, gare);
+  output += `📊 Range storico per pattern quote (${pattern}):\n`;
+  output += rangePattern.messaggio;
+
+  // 2. Informazioni sulla fascia di somma quote
+  output += `🧮 Somma quote: ${sommaQuote.toFixed(2)} (Fascia ${fascia})\n`;
+  const statsFascia = analisiFavoritoPerFascia(fascia, cavalli, {}, gare);
+  output += statsFascia.tot > 0
+    ? `📊 Storico Fascia ${fascia}: favorito vincente ${statsFascia.percV}%, podio ${statsFascia.percP}% su ${statsFascia.tot} gare\n`
+    : `📊 Storico Fascia ${fascia}: ${statsFascia.messaggio}\n`;
+
+  // 3. Analisi favorito e sfavorito
+  output += `🐎 Favorito: ${favorito.nome} (Corsia ${favorito.corsia}, Quota ${favorito.quota})\n`;
+  output += `${analizzaQuotaECorsia(favorito.corsia, favorito.quota, gare)}\n`;
+  output += `🐢 Sfavorito: ${sfavorito.nome} (Corsia ${sfavorito.corsia}, Quota ${sfavorito.quota})\n`;
+  output += `${analizzaQuotaECorsia(sfavorito.corsia, sfavorito.quota, gare)}\n`;
+
+  // 4. Quote e corsie dettagliate
+  output += `\n📌 Quote e corsie dettagliate:\n`;
+  output += analisiPodioPerQuotaECorsia(cavalli, [], gare);
+
+  // 5. Storico cavalli
+  const storico = caricaStoricoCavalli(cavalli, gare);
+  if (storico.output) {
+    output += `\n📜 Storico cavalli:\n${storico.output}`;
+  }
+
+  // 6. Top 3 cavalli
+  if (storico.statistiche?.length) {
+    const top3 = storico.statistiche
+      .sort((a, b) => b.percentualePodioPesata - a.percentualePodioPesata)
+      .slice(0, 3);
+    output += `\n📈 Top 3 cavalli per rendimento storico:\n`;
+    top3.forEach((c, i) => {
+      const corsiaAttuale = cavalli.find(cav => cav.nome.toLowerCase() === c.nome.toLowerCase())?.corsia || "N/D";
+      output += `#${i + 1} → ${c.nome} (Corsia tipica: ${c.corsiaTipica}, Attuale: ${corsiaAttuale}) - ${c.percentualePodioPesata.toFixed(1)}% (Podio: ${c.percentualePodio.toFixed(1)}%, Primo: ${c.percentualePrimo.toFixed(1)}%)\n`;
+      output += `   ↳ Dettagli: ${c.dettagliCorsie}\n`;
+      output += `   ↳ Fasce quote: ${c.dettagliFasce}\n`;
+    });
+
+    // 7. Analisi tris AI
+    if (trisAI.length === 3 && trisAI.every(c => c.nome && !isNaN(c.quota))) {
+      const top3Nomi = top3.map(c => c.nome.toLowerCase());
+      const trisAINomi = trisAI.map(c => c.nome.toLowerCase());
+      const inTop3 = trisAINomi.filter(n => top3Nomi.includes(n)).length;
+      output += `✅ La Tris AI include ${inTop3} cavalli tra i Top 3 storici: ${trisAINomi.filter(n => top3Nomi.includes(n)).map(n => capitalize(n)).join(", ")}.\n`;
+      output += `🎯 Tris suggerita AI: ${trisAI.map(c => `${c.nome} (Corsia ${c.corsia}, Punteggio: ${c.score})`).join(", ")}\n`;
+      output += `📋 Dettagli selezione:\n${trisAI.map(c => `→ ${c.nome}: ${c.dettagli}`).join("\n")}\n`;
+
+      // Probabilità storica con dettagli del cluster
+      const corsieTris = trisAI.map(c => c.corsia).sort((a, b) => a - b).join("-");
+      const clusterInfo = trovaClusterCorsieFrequenti()[corsieTris] || { count: 0, sommaMedia: "N/D", rangeSomme: [0, 0] };
+      output += `📊 Probabilità storica: ${clusterInfo.count > 0 ? `Combinazione corsie ${corsieTris} trovata ${clusterInfo.count} volte (Somma media: ${clusterInfo.sommaMedia}, Range: ${clusterInfo.rangeSomme[0]} - ${clusterInfo.rangeSomme[1]})` : `Combinazione corsie ${corsieTris} non trovata nello storico`}\n`;
+
+      // Analisi probabilità tris AI
+      const quotaTrisAI = calcolaQuotaTrisSuggerita(trisAI);
+      const storicoTris = quotaStoricaPerTris(trisAI, gare);
+      output += `\n📉 Probabilità tris AI:\n`;
+      output += storicoTris.trovata
+        ? `🎯 Quota stimata: ${quotaTrisAI.toFixed(2)} (Range storico: ${storicoTris.range[0].toFixed(2)} - ${storicoTris.range[1].toFixed(2)}, ${storicoTris.count} occorrenze)\n`
+        : `⚠️ Nessun dato storico per questa combinazione di quote.\n`;
+
+      // Analisi cluster tris
+      const clusterCorrente = trovaClusterTris(trisAI);
+      const clusterVincenti = caricaClusterVincenti();
+      output += `\n📊 Cluster tris AI: ${clusterCorrente}\n`;
+      if (clusterVincenti[clusterCorrente]) {
+        const { count, media, min, max } = clusterVincenti[clusterCorrente];
+        output += `✅ Cluster trovato ${count} volte (Quota media: ${media.toFixed(2)}, Range: ${min.toFixed(2)} - ${max.toFixed(2)})\n`;
+      } else {
+        output += `⚠️ Nessun dato storico per questo cluster di corsie.\n`;
+      }
+
+      // Classificazione tris
+      const classif = classificaTrisAI(trisAI);
+      output += `Classificazione: ${classif.classificazione} (Somma quote: ${classif.sommaTris.toFixed(2)})\n`;
+    } else {
+      output += `⚠️ Tris AI non valida: dati insufficienti o incompleti.\n`;
+    }
+  } else {
+    output += `⚠️ Nessun dato storico per i cavalli inseriti.\n`;
+  }
+
+  // 8. Sintesi finale
+  output += generaSintesiFinale(
+    analizzaFavoritoEsteso(favorito.nome, favorito.quota, favorito.corsia),
+    analizzaFavoritoEsteso(sfavorito.nome, sfavorito.quota, sfavorito.corsia),
+    trisAI.length === 3 ? classificaTrisAI(trisAI).classificazione : null
+  );
+
+  return output;
+}
+function analizzaPatternStoriciTris() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  const patternCounts = {};
+
+  gare.forEach(g => {
+    if (!g.tris || g.tris.length === 0) return;
+
+    const tris = g.tris[0].combinazione.split(",").map(n => parseInt(n.trim()));
+    const quote = g.quote || [];
+
+    if (tris.length !== 3) return;
+
+    const quoteTris = tris.map(pos => parseFloat(quote[pos - 1]));
+    if (quoteTris.some(isNaN)) return;
+
+    const pattern = quoteTris.map(quotaPattern).join("-");
+    patternCounts[pattern] = (patternCounts[pattern] || 0) + 1;
+  });
+
+  return patternCounts;
+}
+function trovaTrisSimiliPerSomma(sommaTrisAI, tolleranza = 1.0) {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  let count = 0;
+  const matchExamples = [];
+
+  gare.forEach(g => {
+    if (!g.tris || g.tris.length === 0) return;
+    const tris = g.tris[0].combinazione.split(",").map(n => parseInt(n.trim()));
+    const quote = g.quote || [];
+
+    if (tris.length !== 3) return;
+
+    const quoteTris = tris.map(pos => parseFloat(quote[pos - 1]));
+    if (quoteTris.some(isNaN)) return;
+
+    const somma = quoteTris.reduce((a, b) => a + b, 0);
+    if (Math.abs(somma - sommaTrisAI) <= tolleranza) {
+      count++;
+      matchExamples.push(`${tris.join("-")} (${somma.toFixed(2)})`);
+    }
+  });
+
+  return { count, matchExamples };
+}
+function trovaClusterCorsieFrequenti(tolleranzaMin = Math.max(2, Math.floor(JSON.parse(localStorage.getItem("gare") || "[]").length / 10))) {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (!Array.isArray(gare)) {
+    console.warn("⚠️ Dati gare non validi.");
+    return {};
+  }
+
+  const clusterMap = new Map();
+  const sommePerCluster = new Map();
+
+  gare.forEach(g => {
+    if (!Array.isArray(g.tris) || !g.quote) return;
+
+    g.tris.forEach(t => {
+      const combinazione = t.combinazione?.split(",").map(n => parseInt(n.trim()));
+      if (combinazione?.length !== 3 || combinazione.some(n => isNaN(n) || n < 1 || n > NUM_CORSIE)) {
+        return;
+      }
+
+      const corsie = combinazione.sort((a, b) => a - b).join("-");
+      clusterMap.set(corsie, (clusterMap.get(corsie) || 0) + 1);
+
+      // Calcolo somma quote della tris
+      const quoteTris = combinazione.map(pos => parseFloat(g.quote[pos - 1]));
+      if (quoteTris.some(q => isNaN(q))) return;
+      const somma = quoteTris.reduce((a, b) => a + b, 0);
+
+      if (!sommePerCluster.has(corsie)) {
+        sommePerCluster.set(corsie, []);
+      }
+      sommePerCluster.get(corsie).push(somma);
+    });
+  });
+
+  // Filtra i cluster con occorrenze >= tolleranzaMin
+  const clusterFiltrati = {};
+  for (const [corsie, count] of clusterMap) {
+    if (count >= tolleranzaMin) {
+      const somme = sommePerCluster.get(corsie) || [];
+      clusterFiltrati[corsie] = {
+        count,
+        sommaMedia: somme.length > 0 ? (somme.reduce((a, b) => a + b, 0) / somme.length).toFixed(2) : "N/D",
+        rangeSomme: somme.length > 0 ? [Math.min(...somme).toFixed(2), Math.max(...somme).toFixed(2)] : [0, 0]
+      };
+    }
+  }
+
+  return clusterFiltrati;
+}
+function trisPresenteNeiClusterVincenti(corsieTris, analisiStoriche) {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (!Array.isArray(gare)) return { presente: false, count: 0 };
+
+  let count = 0;
+
+  gare.forEach(g => {
+    g.tris.forEach(t => {
+      const trisCorsie = t.combinazione.split(",").map(Number).sort((a, b) => a - b);
+      const corsieOrdinate = [...corsieTris].sort((a, b) => a - b);
+      if (JSON.stringify(trisCorsie) === JSON.stringify(corsieOrdinate)) {
+        count++;
+      }
+    });
+  });
+
+  return {
+    presente: count > 0,
+    count
+  };
+}
+function quotaPattern(quota) {
+  if (quota <= 2.5) return "B";    // Bassa
+  if (quota <= 6.5) return "M";    // Media
+  if (quota <= 9.9) return "A";    // Alta
+  return "SA";                     // Super Alta
+}
+function calcolaPunteggioCavallo(cavallo, analisiStoriche, storicoCavalli) {
+  const nome = cavallo.nome.toLowerCase();
+  const quota = parseFloat(cavallo.quota);
+  const corsia = cavallo.corsia;
+
+  const chiave = `${corsia}|${quota}`;
+  const datiQuote = analisiStoriche[chiave] || { podi: 0, gare: 0, vittorie: 0 };
+
+  const storico = storicoCavalli[nome] || { podi: 0, totali: 0, quotaMedia: quota };
+
+  const gareTotali = storico.totali;
+  const percPodi = gareTotali > 0 ? (storico.podi / gareTotali) * 100 : 0;
+  const gareQuote = datiQuote.gare;
+  const percQuotePodi = gareQuote > 0 ? (datiQuote.podi / gareQuote) * 100 : 0;
+
+  // Escludi cavalli con meno di 2 gare storiche
+  if (gareTotali < 2 && gareQuote < 2) {
+    return {
+      nome: cavallo.nome,
+      corsia,
+      quota,
+      punteggio: 0  // irrilevante
+    };
+  }
+
+  // Nuovi pesi, più severi
+  const pesoStorico = gareTotali >= 10 ? 1.5 : gareTotali >= 5 ? 1.2 : 0.9;
+  const pesoQuote = gareQuote >= 5 ? 1.2 : gareQuote >= 2 ? 0.9 : 0.7;
+
+  // Penalità per quote alte
+  const penalitàQuota = quota > 10 ? -10 : quota > 8 ? -5 : 0;
+
+  const score = (
+    percPodi * pesoStorico +
+    percQuotePodi * pesoQuote +
+    penalitàQuota
+  ) / 2;
+
+  return {
+    nome: cavallo.nome,
+    corsia,
+    quota,
+    punteggio: Math.max(0, Math.round(score))
+  };
+}
+function calcolaQuotaTrisSuggerita(tris) {
+  // Ordina le quote dal più basso al più alto
+  const quote = tris.map(c => parseFloat(c.quota)).sort((a, b) => a - b);
+  
+  // Logica semplice: quota tris suggerita = quota1 × quota2 × quota3 / 6 (ipotetico coefficiente di sistema)
+  const quotaTris = (quote[0] * quote[1] * quote[2]) / 6;
+
+  return quotaTris;
+}
+function classificaTrisAI(tris) {
+  const sommaTris = tris.reduce((sum, c) => sum + c.quota, 0);
+  let classificazione = "";
+  if (sommaTris <= 9) classificazione = "💎 favorita";
+  else if (sommaTris <= 16) classificazione = "✅ bilanciata";
+  else if (sommaTris <= 25) classificazione = "⚠️ rischiosa";
+  else classificazione = "☠️ tossica";
+
+  return { classificazione, sommaTris };
+}
+function analisiPodioPerQuotaECorsia(cavalli, analisiStoriche, gare) {
+  if (!Array.isArray(cavalli) || !Array.isArray(gare)) {
+    return "⚠️ Errore: dati cavalli o gare non validi.";
+  }
+
+  let output = "";
+  
+  cavalli.forEach(c => {
+    const nomeLower = c.nome.toLowerCase();
+    const corsia = c.corsia;
+    const quota = parseFloat(c.quota);
+
+    if (isNaN(quota) || !nomeLower || !corsia) {
+      output += `📊 Corsia ${corsia} (${c.nome}, Quota ${c.quota}): Dati non validi.\n`;
+      return;
+    }
+
+    // 1. Gare con il cavallo nella corsia specificata e quota simile (±1.0)
+    const gareCorsia = gare.filter(g => {
+      const idx = g.nomi.findIndex(n => n.toLowerCase() === nomeLower);
+      return idx >= 0 && idx + 1 === corsia && Math.abs(parseFloat(g.quote[idx]) - quota) <= 1.0;
+    });
+
+    // 2. Calcolo podi per la corsia specificata
+    const podiCorsia = gareCorsia.reduce((sum, g) => {
+      const tris = g.tris?.[0]?.combinazione?.split(",").map(Number) || [];
+      return sum + (tris.includes(corsia) ? 1 : 0);
+    }, 0);
+    
+    const percCorsia = gareCorsia.length > 0 ? ((podiCorsia / gareCorsia.length) * 100).toFixed(1) : 0;
+    output += `📊 Corsia ${corsia} (${c.nome}, Quota ${c.quota}): ${podiCorsia} podi su ${gareCorsia.length} gare (${percCorsia}%)\n`;
+
+    // 3. Statistiche aggregate per il cavallo (tutte le corsie)
+    const gareCavallo = gare.filter(g => g.nomi.some(n => n.toLowerCase() === nomeLower));
+    const podiTotali = gareCavallo.reduce((sum, g) => {
+      const idx = g.nomi.findIndex(n => n.toLowerCase() === nomeLower);
+      const tris = g.tris?.[0]?.combinazione?.split(",").map(Number) || [];
+      return sum + (tris.includes(idx + 1) ? 1 : 0);
+    }, 0);
+    
+    const percTotali = gareCavallo.length > 0 ? ((podiTotali / gareCavallo.length) * 100).toFixed(1) : 0;
+    output += `   ↳ Totale (tutte corsie): ${podiTotali} podi su ${gareCavallo.length} gare (${percTotali}%)\n`;
+
+    // 4. Analisi per fascia di quota
+    const fasciaQuota = classificaQuota(quota);
+    const gareFascia = gareCavallo.filter(g => {
+      const idx = g.nomi.findIndex(n => n.toLowerCase() === nomeLower);
+      return idx >= 0 && classificaQuota(parseFloat(g.quote[idx])) === fasciaQuota;
+    });
+    const podiFascia = gareFascia.reduce((sum, g) => {
+      const idx = g.nomi.findIndex(n => n.toLowerCase() === nomeLower);
+      const tris = g.tris?.[0]?.combinazione?.split(",").map(Number) || [];
+      return sum + (tris.includes(idx + 1) ? 1 : 0);
+    }, 0);
+    
+    const percFascia = gareFascia.length > 0 ? ((podiFascia / gareFascia.length) * 100).toFixed(1) : 0;
+    output += `   ↳ In fascia ${fasciaQuota}: ${podiFascia} podi su ${gareFascia.length} gare (${percFascia}%)\n`;
+
+    // 5. Suggerimento se non ci sono dati
+    if (gareCorsia.length === 0 && gareCavallo.length === 0) {
+      output += `   ↳ ⚠️ Nessun dato storico per ${c.nome}. Prova a salvare più gare con questo cavallo.\n`;
+    } else if (gareCorsia.length === 0) {
+      output += `   ↳ ⚠️ Nessun dato per ${c.nome} in corsia ${corsia} con quota simile. Prestazioni in altre corsie: ${percTotali}%.\n`;
+    }
+  });
+
+  return output || "⚠️ Nessun dato podio disponibile nel localStorage.";
+}
+function quotaStoricaPerPatternQuote(patternQuote, gare) {
+  if (!Array.isArray(gare)) {
+    console.warn("⚠️ ERRORE: 'gare' non è un array!");
+    return { trovata: false, messaggio: "⚠️ Nessun dato storico disponibile.", range: [0, 0], count: 0 };
+  }
+
+  // Funzione per generare il pattern di una quota con tolleranza
+  function generaPatternConTolleranza(quota) {
+    quota = parseFloat(quota);
+    if (isNaN(quota)) return null;
+    if (quota <= 2.7) return "B"; // Bassa (tolleranza allargata)
+    if (quota <= 7.0) return "M"; // Media
+    if (quota <= 10.5) return "A"; // Alta
+    return "SA"; // Super Alta
+  }
+
+  // Raccogli statistiche per il pattern esatto e pattern simili
+  const patternStats = [];
+  const patternSimili = new Map();
+  let patternTrovato = false;
+  let countEsatti = 0;
+  let sommeTris = [];
+
+  gare.forEach(g => {
+    if (!g.tris || !Array.isArray(g.tris) || !g.quote || !g.nomi) return;
+
+    g.tris.forEach(t => {
+      const combinazione = t.combinazione.split(",").map(i => parseInt(i.trim()) - 1);
+      if (combinazione.length !== 3 || combinazione.some(i => isNaN(i) || i < 0 || i >= g.quote.length)) {
+        return;
+      }
+
+      const quoteTris = combinazione.map(i => parseFloat(g.quote[i]));
+      if (quoteTris.some(q => isNaN(q))) return;
+
+      const patternTris = quoteTris.map(q => generaPatternConTolleranza(q)).join("-");
+      const somma = quoteTris.reduce((a, b) => a + b, 0);
+
+      // Controllo pattern esatto
+      if (patternTris === patternQuote) {
+        patternTrovato = true;
+        countEsatti++;
+        sommeTris.push(somma);
+      }
+
+      // Raccogli pattern simili (almeno 2 quote su 3 uguali)
+      const patternTrisArr = patternTris.split("-");
+      const patternQuoteArr = patternQuote.split("-").slice(0, 3); // Considera solo prime 3 quote
+      const quoteComuni = patternTrisArr.filter((p, i) => i < 3 && p === patternQuoteArr[i]).length;
+      if (quoteComuni >= 2) {
+        patternSimili.set(patternTris, (patternSimili.get(patternTris) || 0) + 1);
+      }
+
+      patternStats.push({ pattern: patternTris, somma });
+    });
+  });
+
+  // Calcolo del range per il pattern esatto
+  const range = sommeTris.length > 0 ? [Math.min(...sommeTris), Math.max(...sommeTris)] : [0, 0];
+
+  // Analisi dei pattern simili
+  let outputSimili = "";
+  if (!patternTrovato && patternSimili.size > 0) {
+    outputSimili = `🔍 Pattern simili trovati:\n`;
+    patternSimili.forEach((count, pattern) => {
+      const sommePattern = patternStats.filter(p => p.pattern === pattern).map(p => p.somma);
+      const rangePattern = sommePattern.length > 0 ? [Math.min(...sommePattern), Math.max(...sommePattern)] : [0, 0];
+      outputSimili += `→ ${pattern}: ${count} occorrenze (Range quote: ${rangePattern[0].toFixed(2)} - ${rangePattern[1].toFixed(2)})\n`;
+    });
+  }
+
+  // Output finale
+  let messaggio = "";
+  if (patternTrovato) {
+    messaggio = `🎯 ${countEsatti} occorrenze trovate.\n`;
+    if (outputSimili) {
+      messaggio += outputSimili;
+    }
+  } else {
+    messaggio = `⚠️ Nessun dato storico per il pattern ${patternQuote}.\n`;
+    messaggio += outputSimili || "ℹ️ Prova a salvare più gare per migliorare l'analisi.";
+  }
+
+  // Statistiche aggiuntive: distribuzione per fascia di somma
+  const fasceSomme = {
+    "A (≤28)": 0,
+    "B (≤35)": 0,
+    "C (≤42)": 0,
+    "D (≤52)": 0,
+    "E (>52)": 0
+  };
+  sommeTris.forEach(somma => {
+    const fascia = classificaFasciaSommaQuote(somma);
+    fasceSomme[`${fascia} (≤${fascia === "A" ? 28 : fascia === "B" ? 35 : fascia === "C" ? 42 : fascia === "D" ? 52 : ">52"})`]++;
+  });
+
+  let outputFasce = "\n📊 Distribuzione somme quote tris:\n";
+  for (const [fascia, count] of Object.entries(fasceSomme)) {
+    if (count > 0) {
+      outputFasce += `→ ${fascia}: ${count} occorrenze\n`;
+    }
+  }
+
+  return {
+    trovata: patternTrovato,
+    messaggio: messaggio + outputFasce,
+    range,
+    count: countEsatti
+  };
+function analizzaQuotaECorsia(corsia, quota, gare) {
+  const gareCorsia = gare.filter(g => {
+    const idx = g.nomi.findIndex((_, i) => i + 1 === corsia);
+    return idx >= 0 && Math.abs(parseFloat(g.quote[idx]) - parseFloat(quota)) <= 0.5;
+  });
+
+  if (!gareCorsia.length) {
+    return "❓ Nessun dato storico disponibile per questa corsia con quota simile.";
+  }
+
+  let vittorie = 0;
+  let podi = 0;
+  gareCorsia.forEach(g => {
+    const tris = g.tris?.[0]?.combinazione?.split(",").map(Number) || [];
+    if (tris.includes(corsia)) podi++;
+    if (tris[0] === corsia) vittorie++;
+  });
+
+  let messaggio = "";
+  if (vittorie > 0) messaggio += "🎯 Range vincente ";
+  if (podi > 0) messaggio += "👍 Range podio ";
+  if (!vittorie && !podi) messaggio = "🚫 Quota fuori dai range storici noti";
+
+  return messaggio.trim() || "❓ Nessun dato storico rilevante.";
+}
+function analisiStoricaPerCorsia(corsia, quota, tipo = "vittorie") {
+  const storico = datiStoriciPerCorsia[corsia];
+  if (!storico) return "❌ Nessun dato storico per questa corsia.";
+
+  const target = tipo === "vittorie" ? storico.vittorie : storico.podi;
+  if (!target || target.length === 0) return `❌ Nessun dato disponibile per ${tipo}.`;
+
+  const rilevanti = target.filter(q => Math.abs(q - quota) <= 0.5);
+  const totale = target.length;
+
+  if (rilevanti.length === 0) {
+    return `0 ${tipo} su ${totale} (quota ${quota} mai ${tipo === "vittorie" ? "vincente" : "a podio"})`;
+  }
+
+  const percentuale = ((rilevanti.length / totale) * 100).toFixed(1);
+  return `${rilevanti.length} ${tipo} su ${totale} (${percentuale}%) con quote simili a ${quota}`;
+}
+function analisiStoricaPerQuoteECorsia(nome, corsia, quota) {
+  const storico = caricaStoricoCavalli();
+  const chiave = nome.toLowerCase();
+  const dati = storico[chiave];
+
+  if (!dati || !dati.dettagli || !Array.isArray(dati.dettagli)) {
+    return { vittoriePerc: 0, secondiPerc: 0, podioPerc: 0, totale: 0 };
+  }
+
+  let primo = 0, secondo = 0, podio = 0, totale = 0;
+
+  dati.dettagli.forEach(gara => {
+    if (parseInt(gara.corsia) === parseInt(corsia) && Math.abs(parseFloat(gara.quota) - parseFloat(quota)) < 0.21) {
+      totale++;
+      if (gara.piazzamento === 1) primo++;
+      if (gara.piazzamento === 2) secondo++;
+      if (gara.piazzamento <= 3) podio++;
+    }
+  });
+
+  return {
+    vittoriePerc: totale > 0 ? Math.round((primo / totale) * 100) : 0,
+    secondiPerc: totale > 0 ? Math.round((secondo / totale) * 100) : 0,
+    podioPerc: totale > 0 ? Math.round((podio / totale) * 100) : 0,
+    totale
+  };
+}
+function analizzaRischioQuotaCorsia(corsia, quota, analisiStoriche) {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (!Array.isArray(gare)) return { gare: 0, podi: 0, vittorie: 0 };
+
+  let count = 0;
+  let podi = 0;
+  let vittorie = 0;
+
+  for (const g of gare) {
+    if (!g || !g.tris || !Array.isArray(g.tris)) continue;
+    const quote = g.quote.map(parseFloat);
+    const tris = g.tris[0]?.combinazione?.split(",").map(Number);
+    if (!tris) continue;
+
+    const cavallo = g.nomi[g.quote.findIndex((q, i) => i + 1 === corsia && parseFloat(q) === quota)];
+    if (!cavallo) continue;
+
+    count++;
+    if (tris.includes(corsia)) podi++;
+    if (tris[0] === corsia) vittorie++;
+  }
+
+  return { gare: count, podi, vittorie };
+}
+function quoteVincentiPerCorsia(corsia, analisiStoriche) {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (!Array.isArray(gare)) return "Nessun dato.";
+
+  function risultati(filtro) {
+    return gare.filter(filtro).map(g => {
+      const tris = g.tris[0]?.combinazione?.split(",").map(Number);
+      if (!tris) return null;
+      return { quote: g.quote, tris };
+    }).filter(Boolean);
+  }
+
+  const risultatiCorsia = risultati(g => g.nomi && g.nomi.length >= corsia);
+  if (risultatiCorsia.length === 0) return "Nessun dato.";
+
+  const fasce = {
+    "1–2.5": 0,
+    "2.6–4": 0,
+    "4.1–6.5": 0,
+    "6.6–9.9": 0,
+    "10+": 0
+  };
+
+  const podi = {
+    "1–2.5": 0,
+    "2.6–4": 0,
+    "4.1–6.5": 0,
+    "6.6–9.9": 0,
+    "10+": 0
+  };
+
+  for (const r of risultatiCorsia) {
+    const quota = parseFloat(r.quote[corsia - 1]);
+    if (isNaN(quota)) continue;
+    const range = quota <= 2.5 ? "1–2.5" :
+                  quota <= 4 ? "2.6–4" :
+                  quota <= 6.5 ? "4.1–6.5" :
+                  quota <= 9.9 ? "6.6–9.9" : "10+";
+
+    fasce[range]++;
+    if (r.tris.includes(corsia)) podi[range]++;
+  }
+
+  let migliorFascia = "";
+  let migliorPerc = 0;
+
+  for (const fascia in fasce) {
+    const total = fasce[fascia];
+    const podiF = podi[fascia];
+    const perc = total > 0 ? (podiF / total) * 100 : 0;
+    if (perc > migliorPerc) {
+      migliorPerc = perc;
+      migliorFascia = fascia;
+    }
+  }
+
+  return `📈 Corsia ${corsia}: quote migliori ${migliorFascia} (${migliorPerc.toFixed(1)}% podio su ${fasce[migliorFascia]} gare)`;
+}
+function analisiFavoritoPerFascia(fascia, cavalli, analisiStoriche, gare) {
+  const gareFascia = gare.filter(g => {
+    const somma = g.quote.reduce((sum, q) => sum + parseFloat(q), 0);
+    return classificaFasciaSommaQuote(somma) === fascia;
+  });
+
+  if (!gareFascia.length) {
+    return { percV: 0, percP: 0, tot: 0, messaggio: "⚠️ Nessuna gara storica per questa fascia. Salva più gare." };
+  }
+
+  let vittorie = 0;
+  let podi = 0;
+  gareFascia.forEach(g => {
+    const quote = g.quote.map(q => parseFloat(q));
+    const favoritoIdx = quote.indexOf(Math.min(...quote));
+    const tris = g.tris?.[0]?.combinazione?.split(",").map(Number) || [];
+    if (tris.includes(favoritoIdx + 1)) podi++;
+    if (tris[0] === favoritoIdx + 1) vittorie++;
+  });
+
+  return {
+    percV: ((vittorie / gareFascia.length) * 100).toFixed(1),
+    percP: ((podi / gareFascia.length) * 100).toFixed(1),
+    tot: gareFascia.length
+  };
+}
+function classificaQuota(quota) {
+  if (quota <= 2.5) return "Bassa";
+  if (quota <= 6.5) return "Media";
+  if (quota <= 9.9) return "Alta";
+  return "Super Alta";
+}
+function trovaClusterTris(tris) {
+  if (!Array.isArray(tris) || tris.length < 3) return "N/D";
+  const corsie = tris.map(c => c.corsia).sort((a, b) => a - b).join("-");
+  const cluster = {
+    "1-2-3": "Cluster A",
+    "2-4-6": "Cluster B",
+    "1-3-5": "Cluster C",
+    "4-5-6": "Cluster D"
+  };
+  return cluster[corsie] || "Altro Cluster";
+}
+function caricaAnalisiStoriche() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  const analisi = {};
+
+  gare.forEach(g => {
+    g.nomi.forEach((nome, i) => {
+      const corsia = i + 1;
+      const quota = parseFloat(g.quote[i]);
+      const key = `${corsia}|${quota}`;
+      if (!analisi[key]) {
+        analisi[key] = { podi: 0, vittorie: 0, gare: 0 };
+      }
+      analisi[key].gare++;
+
+      if (g.tris && Array.isArray(g.tris)) {
+        g.tris.forEach(t => {
+          const combinazione = t.combinazione.split(",").map(n => parseInt(n.trim()));
+          if (combinazione.includes(corsia)) {
+            analisi[key].podi++;
+            if (combinazione[0] === corsia) {
+              analisi[key].vittorie++;
+            }
+          }
+        });
+      }
+    });
+  });
+
+  return analisi;
+}
+function caricaStoricoCavalli(cavalli = [], gare = []) {
+  if (!Array.isArray(gare) || !Array.isArray(cavalli)) {
+    console.warn("⚠️ Dati gare o cavalli non validi.");
+    return { output: "⚠️ Nessun dato storico disponibile.", statistiche: [] };
+  }
+
+  const storico = new Map();
+  const output = [];
+
+  // Inizializza lo storico per ogni cavallo
+  cavalli.forEach(c => {
+    const key = c.nome.toLowerCase();
+    storico.set(key, {
+      nome: c.nome,
+      podi: 0,
+      primi: 0,
+      totali: 0,
+      corsie: [],
+      quote: [],
+      perCorsia: {}, // Statistiche per corsia
+      perFasciaQuota: { B: 0, M: 0, A: 0, SA: 0 } // Statistiche per fascia di quota
+    });
+  });
+
+  // Analisi delle gare
+  gare.forEach(gara => {
+    if (!gara.nomi || !gara.quote || !Array.isArray(gara.tris)) return;
+
+    const tris = gara.tris.flatMap(t => {
+      const combinazione = t.combinazione?.split(",").map(n => parseInt(n.trim()));
+      if (combinazione?.length !== 3 || combinazione.some(n => isNaN(n) || n < 1 || n > NUM_CORSIE)) {
+        return [];
+      }
+      return [combinazione];
+    });
+
+    gara.nomi.forEach((nome, idx) => {
+      const key = nome.toLowerCase();
+      let cavallo = storico.get(key);
+      if (!cavallo) {
+        cavallo = {
+          nome,
+          podi: 0,
+          primi: 0,
+          totali: 0,
+          corsie: [],
+          quote: [],
+          perCorsia: {},
+          perFasciaQuota: { B: 0, M: 0, A: 0, SA: 0 }
+        };
+        storico.set(key, cavallo);
+      }
+
+      const corsia = idx + 1;
+      const quota = parseFloat(gara.quote[idx]);
+      if (isNaN(quota) || quota <= 0) return;
+
+      cavallo.totali++;
+      cavallo.corsie.push(corsia);
+      cavallo.quote.push(quota);
+
+      // Statistiche per corsia
+      cavallo.perCorsia[corsia] = cavallo.perCorsia[corsia] || { podi: 0, totali: 0 };
+      cavallo.perCorsia[corsia].totali++;
+
+      // Statistiche per fascia di quota
+      const fasciaQuota = quotaPattern(quota);
+      cavallo.perFasciaQuota[fasciaQuota]++;
+
+      // Controllo podi e primi
+      tris.forEach(t => {
+        if (t.includes(corsia)) {
+          cavallo.podi++;
+          cavallo.perCorsia[corsia].podi++;
+          if (t[0] === corsia) {
+            cavallo.primi++;
+          }
+        }
+      });
+    });
+  });
+
+  // Calcolo statistiche
+  const statistiche = [];
+  for (const cavallo of storico.values()) {
+    const percPodio = cavallo.totali > 0 ? (cavallo.podi / cavallo.totali) * 100 : 0;
+    const percPrimo = cavallo.totali > 0 ? (cavallo.primi / cavallo.totali) * 100 : 0;
+    const quotaMedia = cavallo.quote.length > 0 ? (cavallo.quote.reduce((a, b) => a + b, 0) / cavallo.quote.length).toFixed(2) : "N/D";
+    const corsiaTipica = getModaCorsia(cavallo.corsie);
+
+    // Statistiche per corsia
+    const statCorsie = Object.entries(cavallo.perCorsia).map(([corsia, data]) => {
+      const perc = data.totali > 0 ? (data.podi / data.totali) * 100 : 0;
+      return `Corsia ${corsia}: ${data.podi} podi su ${data.totali} (${perc.toFixed(1)}%)`;
+    }).join("; ");
+
+    // Statistiche per fascia di quota
+    const statFasce = Object.entries(cavallo.perFasciaQuota).map(([fascia, count]) => {
+      return `${fascia}: ${count} gare`;
+    }).join("; ");
+
+    statistiche.push({
+      nome: cavallo.nome,
+      corsiaTipica,
+      percentualePodio: percPodio,
+      percentualePrimo: percPrimo,
+      percentualePodioPesata: percPodio + percPrimo * 0.5,
+      quotaMedia,
+      dettagliCorsie: statCorsie,
+      dettagliFasce: statFasce
+    });
+
+    output.push(
+      `🐎 ${cavallo.nome} → ${cavallo.podi} podi su ${cavallo.totali} (${percPodio.toFixed(1)}% podio, ${percPrimo.toFixed(1)}% primo, quota media ${quotaMedia})\n` +
+      `   ↳ Per corsia: ${statCorsie || "Nessun dato"}\n` +
+      `   ↳ Per fascia quota: ${statFasce || "Nessun dato"}`
+    );
+  }
+
+  return {
+    output: output.join("\n") + "\n",
+    statistiche
+  };
+}
+
+// Funzione di supporto per calcolare la corsia più frequente
+function getModaCorsia(corsie) {
+  if (!corsie.length) return "N/D";
+  const counts = {};
+  corsie.forEach(c => counts[c] = (counts[c] || 0) + 1);
+  return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+}
+  function getModaCorsia(corsie) {
+    if (!corsie.length) return "N/D";
+    const counts = {};
+    corsie.forEach(c => counts[c] = (counts[c] || 0) + 1);
+    return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+  }
+
+  cavalli.forEach(cav => {
+    const key = cav.nome.toLowerCase();
+    const data = storico[key];
+    if (!data) {
+      output.push(`🐎 ${cav.nome} → Nessun dato storico disponibile`);
+      return;
+    }
+
+    const percPodio = (data.podi / data.totali) * 100;
+    const percPrimi = (data.primi / data.totali) * 100;
+    const corsiaTipica = getModaCorsia(data.corsie);
+    const quotaMedia = (data.quote.reduce((a, b) => a + b, 0) / data.quote.length).toFixed(2);
+
+    statistiche.push({
+      nome: cav.nome,
+      corsiaTipica,
+      percentualePodio: percPodio,
+      percentualePrimo: percPrimi,
+      percentualePodioPesata: percPodio + percPrimi * 0.5,
+      quotaMedia
+    });
+
+    output.push(
+      `🐎 ${cav.nome} → ${data.podi} podi su ${data.totali} (${percPodio.toFixed(1)}% podio, quota media ${quotaMedia})`
+    );
+  });
+
+  return {
+    output: output.join("\n") + "\n",
+    statistiche
+  };
+}
+function caricaClusterVincenti() {
+  const gare = JSON.parse(localStorage.getItem("storico_gare") || "[]");
+  const clusterMap = {};
+
+  for (const gara of gare) {
+    if (!gara.tris || !gara.quote) continue;
+
+    const tris = gara.tris[0].combinazione;
+    const corsie = tris.split(",").map(c => parseInt(c.trim())).sort((a, b) => a - b);
+    const key = corsie.join("-");
+
+    const quote = gara.quote;
+    try {
+      const somma = corsie.reduce((acc, c) => acc + parseFloat(quote[c - 1].replace(",", ".")), 0);
+      if (!clusterMap[key]) clusterMap[key] = [];
+      clusterMap[key].push(parseFloat(somma.toFixed(2)));
+    } catch (e) {
+      continue;
+    }
+  }
+
+  const riassunto = {};
+  for (const cluster in clusterMap) {
+    const liste = clusterMap[cluster];
+    const media = liste.reduce((a, b) => a + b, 0) / liste.length;
+    riassunto[cluster] = {
+      count: liste.length,
+      media: parseFloat(media.toFixed(2)),
+      min: Math.min(...liste),
+      max: Math.max(...liste)
+    };
+  }
+
+  return riassunto;
+}
+
+function suggerisciTrisAI(cavalli, analisiStoriche, gare = []) {
+  if (!Array.isArray(cavalli) || cavalli.length < NUM_CORSIE || cavalli.some(c => !c.nome || isNaN(c.quota) || !c.corsia)) {
+    console.warn("⚠️ Dati cavalli non validi o insufficienti.");
+    return [];
+  }
+
+  const storico = caricaStoricoCavalli(cavalli, gare).statistiche || [];
+  const cavalliConPunteggio = cavalli.map(c => {
+    if (!c.nome || isNaN(c.quota)) {
+      console.warn(`⚠️ Cavallo non valido: ${JSON.stringify(c)}`);
+      return { ...c, score: 0, dettagli: "Dati non validi" };
+    }
+
+    const nomeLower = c.nome.toLowerCase();
+    const stats = storico.find(s => s.nome.toLowerCase() === nomeLower) || {
+      percentualePodioPesata: 0,
+      percentualePodio: 0,
+      percentualePrimo: 0,
+      corsiaTipica: "N/D",
+      quotaMedia: c.quota
+    };
+
+    // Calcolo punteggio
+    const chiave = `${c.corsia}|${c.quota}`;
+    const datiQuote = analisiStoriche[chiave] || { podi: 0, gare: 0, vittorie: 0 };
+    const percPodiCorsia = datiQuote.gare > 0 ? (datiQuote.podi / datiQuote.gare) * 100 : 0;
+    const percVittorieCorsia = datiQuote.gare > 0 ? (datiQuote.vittorie / datiQuote.gare) * 100 : 0;
+
+    // Pesi aggiornati
+    const pesoPodio = stats.percentualePodio >= 50 ? 1.5 : 1.0; // Bonus per cavalli con buon storico
+    const pesoCorsia = c.corsia === parseInt(stats.corsiaTipica) ? 1.2 : 0.8; // Bonus se corsia attuale = tipica
+    const penalitaQuota = c.quota > 10 ? -15 : c.quota > 6.5 ? -5 : 0; // Penalità per quote alte
+
+    const score = (
+      stats.percentualePodioPesata * pesoPodio +
+      percPodiCorsia * pesoCorsia * 0.5 +
+      percVittorieCorsia * pesoCorsia * 0.3 +
+      penalitaQuota
+    );
+
+    return {
+      ...c,
+      score: Math.max(0, Math.round(score)),
+      dettagli: `Podio: ${stats.percentualePodio.toFixed(1)}%, Primo: ${stats.percentualePrimo.toFixed(1)}%, Corsia ${c.corsia}: ${percPodiCorsia.toFixed(1)}% podi`
+    };
+  });
+
+  // Ordinamento per punteggio e selezione iniziale dei top 3
+  let trisCandidata = cavalliConPunteggio.sort((a, b) => b.score - a.score).slice(0, 3);
+
+  // Verifica se la combinazione è tossica
+  const checkTossica = controllaCombinazioniTossiche(trisCandidata, gare);
+  if (checkTossica.tossica) {
+    console.warn(`⚠️ Tris tossica: ${checkTossica.messaggio}`);
+    // Prova a sostituire un cavallo con il successivo migliore
+    const alternativa = cavalliConPunteggio.sort((a, b) => b.score - a.score).slice(0, 4);
+    for (let i = 0; i < 3; i++) {
+      const nuovaTris = [...trisCandidata];
+      nuovaTris[i] = alternativa[3]; // Sostituisci con il quarto migliore
+      if (!controllaCombinazioniTossiche(nuovaTris, gare).tossica) {
+        trisCandidata = nuovaTris;
+        break;
+      }
+    }
+  }
+
+  // Verifica bilanciamento somma quote
+  const sommaTris = trisCandidata.reduce((sum, c) => sum + c.quota, 0);
+  const fasciaTris = classificaFasciaSommaQuote(sommaTris);
+  if (fasciaTris === "E" && cavalliConPunteggio.length > 3) {
+    // Se la somma è troppo alta (Fascia E), prova a sostituire lo sfavorito
+    const alternativo = cavalliConPunteggio.sort((a, b) => b.score - a.score).slice(0, 4);
+    const nuovaTris = [...trisCandidata].sort((a, b) => b.quota - a.quota); // Ordina per quota decrescente
+    nuovaTris[0] = alternativo.find(c => c.quota < nuovaTris[0].quota) || nuovaTris[0]; // Sostituisci sfavorito
+    if (classificaFasciaSommaQuote(nuovaTris.reduce((sum, c) => sum + c.quota, 0)) !== "E") {
+      trisCandidata = nuovaTris;
+    }
+  }
+
+  // Aggiungi probabilità storica della combinazione di corsie
+  const corsieTris = trisCandidata.map(c => c.corsia).sort((a, b) => a - b).join("-");
+  const clusterInfo = trovaClusterCorsieFrequenti()[corsieTris] || 0;
+  trisCandidata.probabilita = clusterInfo > 0
+    ? `Combinazione corsie ${corsieTris} trovata ${clusterInfo} volte come vincente`
+    : `Combinazione corsie ${corsieTris} non trovata nello storico`;
+
+  return trisCandidata;
+}
+function setupAutocomplete() {
+  const inputs = document.querySelectorAll("input.nome");
+  const cavalli = new Set();
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  gare.forEach(g => g.nomi.forEach(n => cavalli.add(n)));
+
+  inputs.forEach(input => {
+    input.addEventListener("input", function() {
+      closeLists();
+      const val = this.value;
+      if (!val) return;
+      const list = document.createElement("div");
+      list.setAttribute("class", "autocomplete-items");
+      this.parentNode.appendChild(list);
+
+      [...cavalli].forEach(nome => {
+        if (nome.toLowerCase().startsWith(val.toLowerCase())) {
+          const div = document.createElement("div");
+          div.innerHTML = `<strong>${nome.substr(0, val.length)}</strong>${nome.substr(val.length)}<input type='hidden' value='${nome}'>`;
+          div.addEventListener("click", () => {
+            input.value = nome;
+            closeLists();
+          });
+          list.appendChild(div);
+        }
+      });
+    });
+    input.addEventListener("blur", () => setTimeout(closeLists, 100));
+  });
+
+  function closeLists() {
+    document.querySelectorAll(".autocomplete-items").forEach(el => el.remove());
+  }
+}
+function analizzaFavoritoEsteso(nome, quota, corsia) {
+  const storico = caricaStoricoCavalli();
+  const cavallo = storico[nome.toLowerCase()];
+  if (!cavallo || !cavallo.totali) {
+    return { gare: 0, percV: 0, percS: 0, percP: 0 };
+  }
+
+  const percV = ((cavallo.primi / cavallo.totali) * 100).toFixed(1);
+  const percS = ((cavallo.secondi / cavallo.totali) * 100).toFixed(1);
+  const percP = ((cavallo.podi / cavallo.totali) * 100).toFixed(1);
+
+  return {
+    gare: cavallo.totali,
+    percV,
+    percS,
+    percP
+  };
+}
+
+function cercaGare() {
+  const nome = document.getElementById("nome1_1").value.trim().toLowerCase();
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  const risultati = gare.filter(g => g.nomi[0].toLowerCase() === nome);
+  if (risultati.length === 0) return alert("Nessuna gara trovata con quel cavallo in corsia 1.");
+
+  let index = 0;
+  const win = window.open("", "Risultati Ricerca", "width=600,height=400");
+  function mostraGara(i) {
+    const g = risultati[i];
+    win.document.body.innerHTML = `<h3>Gara ${i+1} di ${risultati.length}</h3><ul>
+      ${g.nomi.map((n, idx) => `<li>Corsia ${idx+1}: ${n} (Quota: ${g.quote[idx]})</li>`).join("")}
+      </ul><p><strong>Tris vincenti:</strong><br>${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}</p>
+      <button onclick="window.opener.prevGara()">&larr;</button>
+      <button onclick="window.opener.nextGara()">&rarr;</button>`;
+  }
+  window.prevGara = () => { if (index > 0) index--; mostraGara(index); };
+  window.nextGara = () => { if (index < risultati.length - 1) index++; mostraGara(index); };
+  mostraGara(index);
+}
+
+function mostraTutteGare() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (gare.length === 0) return alert("Nessuna gara salvata.");
+  const win = window.open("", "Gare Salvate", "width=600,height=600,scrollbars=yes");
+  win.document.body.innerHTML = `<h2>${gare.length} Gare Salvate</h2>` + gare.map((g, idx) => `
+    <h3>Gara ${idx + 1}</h3>
+    <ul>${g.nomi.map((n, i) => `<li>Corsia ${i+1}: ${n} (Quota: ${g.quote[i]})</li>`).join("")}</ul>
+    <p><strong>Tris:</strong><br>${g.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("<br>")}</p><hr>`).join("");
+}
+
+function cancellaTutto() {
+  if (confirm("Sicuro di voler eliminare tutte le gare?")) {
+    localStorage.removeItem("gare");
+    alert("Gare eliminate.");
+    document.getElementById("report").textContent = "";
+  }
+}
+
+function exportCSV() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (gare.length === 0) return alert("Nessuna gara da esportare.");
+
+  let csv = "Gara;Corsia;Nome;Quota;Tris Vincente;Quota Tris\n";
+
+  gare.forEach((g, idx) => {
+    g.nomi.forEach((nome, i) => {
+      g.tris.forEach(t => {
+        csv += `${idx + 1};${i + 1};${nome};${g.quote[i]};${t.combinazione};${t.quota}\n`;
+      });
+    });
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `gare_export_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+}
+function eliminaGaraPopup() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (gare.length === 0) {
+    alert("Nessuna gara salvata.");
+    return;
+  }
+
+  const id = prompt(`Inserisci il numero ID della gara da eliminare (1-${gare.length}):`);
+  if (!id || isNaN(id)) {
+    alert("ID non valido.");
+    return;
+  }
+
+  const index = parseInt(id) - 1;
+  if (index < 0 || index >= gare.length) {
+    alert("ID fuori intervallo.");
+    return;
+  }
+
+  const gara = gare[index];
+  const conferma = confirm(
+    `Vuoi davvero eliminare la gara #${id}?\n\n` +
+    gara.nomi.map((n, i) => `Corsia ${i + 1}: ${n} (Quota: ${gara.quote[i]})`).join("\n") +
+    `\n\nTris:\n${gara.tris.map(t => `→ ${t.combinazione} (Quota: ${t.quota})`).join("\n")}`
+  );
+
+  if (!conferma) return;
+
+  gare.splice(index, 1);
+  localStorage.setItem("gare", JSON.stringify(gare));
+  alert(`Gara #${id} eliminata con successo.`);
+  document.getElementById("report").textContent = "";
+}
+function eliminaTrisSingolaPopup() {
+  const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+  if (gare.length === 0) {
+    alert("Nessuna gara salvata.");
+    return;
+  }
+
+  const id = prompt(`Inserisci il numero ID della gara da cui eliminare una tris (1-${gare.length}):`);
+  if (!id || isNaN(id)) {
+    alert("ID non valido.");
+    return;
+  }
+
+  const index = parseInt(id) - 1;
+  if (index < 0 || index >= gare.length) {
+    alert("ID fuori intervallo.");
+    return;
+  }
+
+  const gara = gare[index];
+  if (gara.tris.length === 0) {
+    alert("Questa gara non ha tris salvate.");
+    return;
+  }
+
+  const listaTris = gara.tris.map((t, i) => `#${i + 1} → ${t.combinazione} (Quota: ${t.quota})`).join("\n");
+  const scelta = prompt(
+    `Tris salvate nella gara #${id}:\n${listaTris}\n\nInserisci il numero della tris da eliminare:`
+  );
+
+  const trisIndex = parseInt(scelta) - 1;
+  if (isNaN(trisIndex) || trisIndex < 0 || trisIndex >= gara.tris.length) {
+    alert("Indice tris non valido.");
+    return;
+  }
+
+  const conferma = confirm(`Vuoi davvero eliminare la tris #${scelta}: ${gara.tris[trisIndex].combinazione}?`);
+  if (!conferma) return;
+
+  gara.tris.splice(trisIndex, 1);
+  localStorage.setItem("gare", JSON.stringify(gare));
+
+  alert("Tris eliminata con successo.");
+  document.getElementById("report").textContent = "";
+}
+
+function pulisciTabella(index) {
+  for (let i = 1; i <= NUM_CORSIE; i++) {
+    document.getElementById(`nome${index}_${i}`).value = "";
+    document.getElementById(`quota${index}_${i}`).value = "";
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  inizializzaTabella();
+  setupAutocomplete();
+  startAIWatcher();
+});
+function startVoiceInput() {
+  if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+    alert("Riconoscimento vocale non supportato dal browser.");
+    return;
+  }
+  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  recognition.lang = "it-IT";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = function(event) {
+    const result = event.results[0][0].transcript;
+    const righe = result.split(/virgola|punto|,|\./i).map(r => r.trim()).filter(r => r);
+    
+    if (righe.length > NUM_CORSIE) {
+      alert(`Troppi dati vocali: massimo ${NUM_CORSIE} cavalli.`);
+      return;
+    }
+
+    righe.forEach((riga, i) => {
+      const parts = riga.split(" ");
+      if (parts.length < 2) return;
+      const nome = capitalize(parts.slice(0, -1).join(" ").trim());
+      const quota = parseFloat(parts[parts.length - 1].replace(",", ".").trim());
+      if (!nome || isNaN(quota) || quota <= 0) return;
+      const inputNome = document.querySelector(`#gara1 input[name="cavallo${i + 1}"]`);
+      const inputQuota = document.querySelector(`#gara1 input[name="quota${i + 1}"]`);
+      if (inputNome && inputQuota) {
+        inputNome.value = nome;
+        inputQuota.value = quota.toFixed(2);
+      }
+    });
+
+    // Esegue l'analisi AI se i dati sono completi
+    const dati = getGaraData(1);
+    if (!dati.nomi.includes("") && !dati.quote.includes("")) {
+      const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+      const analisiStoriche = caricaAnalisiStoriche();
+      const trisVincentiStoriche = gare.map(g => g.tris || []);
+      const cavalli = dati.nomi.map((nome, i) => ({
+        nome,
+        quota: parseFloat(dati.quote[i]),
+        corsia: i + 1
+      }));
+      const trisAI = suggerisciTrisAI(cavalli, analisiStoriche);
+      const reportAI = analisiAIAvanzata(cavalli, trisVincentiStoriche, analisiStoriche, gare, trisAI);
+      mostraReport(reportAI);
+      aggiornaBadgeOrario();
+    }
+  };
+
+  recognition.onerror = function(event) {
+    alert("Errore nella dettatura vocale: " + event.error);
+  };
+
+  recognition.start();
+}
+function generaSintesiFinale(favorito, sfavorito, classificazione) {
+  let sintesi = `\n\n✨ Sintesi:`;
+
+  if (favorito.vittoriePerc === 0) {
+    sintesi += ` ⚠️ Attenzione: favorito solo teorico.`;
+  }
+
+  if (sfavorito.vittoriePerc > 0 || sfavorito.podioPerc > 0) {
+    sintesi += ` 🎯 Possibile sorpresa dello sfavorito.`;
+  }
+
+  if (classificazione) {
+    sintesi += ` Tris AI considerata: ${classificazione}`;
+  }
+
+  return sintesi;
+}
+function quotaStoricaPerTris(tris, gare) {
+  if (!Array.isArray(tris) || tris.length < 3 || !Array.isArray(gare)) {
+    return {
+      trovata: false,
+      messaggio: "❌ Dati tris AI non validi o storico mancante"
+    };
+  }
+
+  const pattern = tris.map(c => quotaPattern(c.quota)).join("-");
+  const trisFiltrate = gare.filter(g => {
+    if (!g.tris || g.tris.length < 3) return false;
+    const patternGara = g.tris.map(c => quotaPattern(parseFloat(c.quota))).join("-");
+    return patternGara === pattern;
+  });
+
+  if (trisFiltrate.length === 0) {
+    return {
+      trovata: false,
+      messaggio: "⚠️ Nessun dato storico per questa combinazione di quote."
+    };
+  }
+
+  const somme = trisFiltrate.map(g => g.tris.reduce((sum, c) => sum + parseFloat(c.quota), 0));
+  const min = Math.min(...somme);
+  const max = Math.max(...somme);
+  return {
+    trovata: true,
+    range: [min, max],
+    count: trisFiltrate.length
+  };
+}
+function startAIWatcher() {
+  let ultimaFirma = "";
+  const inputs = document.querySelectorAll("#gara1 input");
+
+  function eseguiAnalisi() {
+    const { cavalli, valid } = getGaraData(1);
+    const firma = cavalli.map(c => `${c.nome}|${c.quota}`).join("::");
+
+    if (valid && firma !== ultimaFirma && cavalli.length === NUM_CORSIE) {
+      const gare = JSON.parse(localStorage.getItem("gare") || "[]");
+      const analisiStoriche = caricaAnalisiStoriche();
+      const trisVincentiStoriche = gare.map(g => g.tris || []);
+      const trisAI = suggerisciTrisAI(cavalli, analisiStoriche, gare);
+      const reportAI = analisiAIAvanzata(cavalli, trisVincentiStoriche, gare, trisAI);
+      mostraReport(reportAI);
+      aggiornaBadgeOrario();
+      ultimaFirma = firma;
+    }
+  }
+
+  inputs.forEach(input => {
+    input.addEventListener("input", () => {
+      setTimeout(eseguiAnalisi, 500); // Debounce
+    });
+  });
+
+  // Analisi iniziale
+  eseguiAnalisi();
+}
+function aggiornaBadgeOrario() {
+  const ora = new Date();
+  const orario = ora.toLocaleTimeString("it-IT", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const badge = document.getElementById("badgeAI");
+  if (badge) {
+    badge.innerText = `AI aggiornata alle ${orario}`;
+  }
+}
+</script>
+</body>
+</html>
